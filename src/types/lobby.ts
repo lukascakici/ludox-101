@@ -6,12 +6,9 @@
  *  - Common lobby settings are grouped under `BaseLobbySettings`.
  *  - Game-specific rules are declared in the `GameRulesMap` registry; adding a
  *    new game means adding a new key to that map (Open/Closed Principle).
- *  - Conditional fields such as scoring are modeled with a discriminated union,
- *    so invalid combinations (e.g. round count in record mode) are rejected at
- *    compile time.
  *
- * Strict typing: `any` is never used, conditional fields are enforced via
- * unions, and fields that must be immutable are marked `readonly`.
+ * Strict typing: `any` is never used, and fields that must be immutable are
+ * marked `readonly`.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -31,14 +28,6 @@ export enum GameMode {
   Paired = 'PAIRED',
   /** Solo — every player for themselves (free for all). */
   Solo = 'SOLO',
-}
-
-/** Scoring style (the discriminant of the score system). */
-export enum ScoreType {
-  /** Record — played by counting down from a fixed starting score. */
-  Record = 'RECORD',
-  /** Rounds — played for a fixed number of rounds. */
-  Rounds = 'ROUNDS',
 }
 
 /** Status of a lobby within its lifecycle. */
@@ -62,42 +51,47 @@ export enum LobbyStatus {
 export type TurnDuration = 15 | 30 | 60;
 
 /**
- * Scoring configuration — discriminated union.
- * Only the relevant fields are required depending on `type`:
- *  - Record  -> targetScore (e.g. 500, 1001)
- *  - Rounds  -> totalRounds (e.g. 3, 5)
- * This makes invalid states such as "record + round count" impossible at the
- * type level.
+ * Match format. The game is ALWAYS round-based:
+ *  - `roundsPerSet` — number of rounds (el) played in a single set.
+ *  - `bestOf`       — number of sets in the match. `1` means a flat single set
+ *                     (e.g. "play 11 rounds, highest score wins"); `3`/`5` mean
+ *                     the set winner earns a set-point and the first to win the
+ *                     majority of sets wins the match (e.g. "5 rounds, best of 3").
  */
-export type ScoreConfig =
-  | { readonly type: ScoreType.Record; readonly targetScore: number }
-  | { readonly type: ScoreType.Rounds; readonly totalRounds: number };
+export interface MatchFormat {
+  roundsPerSet: number;
+  bestOf: number;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Game-specific rules (extensible registry)                                  */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Common base shared by all game rule types. If a shared field (e.g. `variant`)
- * is needed later, it can be added in one place.
+ * Common base shared by all game rule types. If a shared field is needed later,
+ * it can be added in one place.
  */
 export interface BaseGameRules {
   /** Reserved for future shared fields. */
   readonly _placeholder?: never;
 }
 
-/** Okey 101-specific rules. (To be filled in during Phase 2+ core mechanics.) */
+/** Okey 101-specific rules. */
 export interface Okey101Rules extends BaseGameRules {
-  // e.g. (later): mandatoryOkey, openFromIndicator, finishHandBonus ...
-  readonly _placeholder?: never;
+  /** Floor-tile penalties (yere taş atma cezaları). */
+  floorPenalty: boolean;
+  /** Penalty to the OPPOSING team when opening a 150+ series or 7+ pairs (rekor). */
+  rekorPenalty: boolean;
+  /** Score doubling (katlama). */
+  doubling: boolean;
 }
 
-/** Tavla-specific rules. */
+/** Tavla-specific rules. (To be filled in when Tavla is implemented.) */
 export interface TavlaRules extends BaseGameRules {
   readonly _placeholder?: never;
 }
 
-/** Batak-specific rules. */
+/** Batak-specific rules. (To be filled in when Batak is implemented.) */
 export interface BatakRules extends BaseGameRules {
   readonly _placeholder?: never;
 }
@@ -128,10 +122,8 @@ export interface GameRulesMap {
 export interface BaseLobbySettings {
   /** Whether the game is played paired or solo. */
   gameMode: GameMode;
-  /** Penalties on (true) / off (false) — e.g. tile-dropping penalties. */
-  penaltySystem: boolean;
-  /** Scoring style and its dependent parameters. */
-  scoreConfig: ScoreConfig;
+  /** Round/set structure of the match. */
+  matchFormat: MatchFormat;
   /** Turn duration (seconds). */
   turnDuration: TurnDuration;
   /** Is this a private/password-protected lobby? (The password itself is NOT stored in the settings object.) */
@@ -146,11 +138,10 @@ export interface BaseLobbySettings {
  * const s: LobbySettings<GameType.Okey101> = {
  *   gameType: GameType.Okey101,
  *   gameMode: GameMode.Paired,
- *   penaltySystem: true,
- *   scoreConfig: { type: ScoreType.Record, targetScore: 1001 },
+ *   matchFormat: { roundsPerSet: 5, bestOf: 3 },
  *   turnDuration: 30,
  *   isPrivate: false,
- *   gameRules: {},
+ *   gameRules: { floorPenalty: true, rekorPenalty: true, doubling: false },
  * };
  */
 export interface LobbySettings<T extends GameType = GameType>
