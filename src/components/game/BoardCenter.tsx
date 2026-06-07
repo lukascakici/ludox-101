@@ -28,6 +28,7 @@ export function BoardCenter({
       <div className="flex flex-col items-center gap-1.5">
         <span className="text-xs text-stone-300">Deste</span>
         <div
+          data-deck
           onPointerDown={canDraw ? onDeckPointerDown : undefined}
           className={`relative rounded-md transition-shadow ${
             canDraw ? 'cursor-grab touch-none ring-2 ring-amber-400' : ''

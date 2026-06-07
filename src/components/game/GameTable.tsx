@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Seat } from './Seat';
 import { BoardCenter } from './BoardCenter';
 import { DiscardPile } from './DiscardPile';
 import { Rack } from './Rack';
 import { Tile } from './Tile';
+import { FlyingTile, type Flight, type Point } from './FlyingTile';
 import { usePointerDrag, isOverSelector } from './usePointerDrag';
 import { computeOkey } from '@/game/okey';
 import type { GameTile } from './Tile';
@@ -104,6 +105,82 @@ export function GameTable({
     }
   });
 
+  // Animate opponents' moves (draw/discard/take). Self moves are already shown
+  // by the player's own drag, so they aren't animated here.
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const flightKeyRef = useRef(0);
+  const prevRef = useRef<{
+    handCounts: Record<string, number>;
+    discards: Record<string, TileModel[]>;
+    drawPileCount: number;
+  } | null>(null);
+
+  const changeSig = JSON.stringify({
+    hc: handCounts,
+    dl: Object.keys(discards).map((key) => discards[key].length),
+    dc: drawPileCount,
+  });
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = { handCounts, discards, drawPileCount };
+    if (!prev) return;
+
+    const centerOf = (selector: string): Point | null => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    };
+    const seatSelector = (uid: string) =>
+      uid === currentUid ? '[data-rack-zone]' : `[data-seat="${uid}"]`;
+    const addFlight = (flight: Omit<Flight, 'key'>) => {
+      const key = `flight-${flightKeyRef.current++}`;
+      setFlights((current) => [...current, { key, ...flight }]);
+    };
+
+    for (const seatKey of Object.keys(discards)) {
+      const seatIndex = Number(seatKey);
+      const len = discards[seatKey].length;
+      const prevLen = prev.discards[seatKey]?.length ?? 0;
+
+      // Discard: a pile grew — fly from the thrower's seat to the pile.
+      if (len > prevLen) {
+        const thrower = playerOrder[seatIndex];
+        const face = discards[seatKey][len - 1]?.face;
+        const from = thrower ? centerOf(seatSelector(thrower)) : null;
+        const to = centerOf(`[data-pile="${seatIndex}"]`);
+        if (thrower && thrower !== currentUid && from && to && face) {
+          addFlight({ face, from, to });
+        }
+      }
+
+      // Take: a pile shrank — fly from the pile to the taker (its right seat).
+      if (len < prevLen) {
+        const taker = playerOrder[(seatIndex + 1) % count];
+        const face = prev.discards[seatKey]?.[prevLen - 1]?.face;
+        const from = centerOf(`[data-pile="${seatIndex}"]`);
+        const to = taker ? centerOf(seatSelector(taker)) : null;
+        if (taker && taker !== currentUid && from && to && face) {
+          addFlight({ face, from, to });
+        }
+      }
+    }
+
+    // Draw: the deck shrank — fly a face-down tile from the deck to the drawer.
+    if (drawPileCount < prev.drawPileCount) {
+      const drawer = playerOrder.find(
+        (uid) => (handCounts[uid] ?? 0) > (prev.handCounts[uid] ?? 0),
+      );
+      const from = centerOf('[data-deck]');
+      const to = drawer ? centerOf(seatSelector(drawer)) : null;
+      if (drawer && drawer !== currentUid && from && to) {
+        addFlight({ faceDown: true, from, to });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changeSig]);
+
   return (
     <div className="table-felt flex h-dvh flex-col text-stone-100">
       {/* Top bar */}
@@ -122,21 +199,30 @@ export function GameTable({
       {/* Table area */}
       <div className="relative flex-1">
         {/* Opponent seats */}
-        <div className="absolute left-1/2 top-3 -translate-x-1/2">
+        <div
+          data-seat={acrossUid}
+          className="absolute left-1/2 top-3 -translate-x-1/2"
+        >
           <Seat
             name={nameOf(acrossUid)}
             tileCount={handCounts[acrossUid] ?? 0}
             isTurn={acrossUid === currentTurnUid}
           />
         </div>
-        <div className="absolute left-[12%] top-1/2 -translate-y-1/2">
+        <div
+          data-seat={leftUid}
+          className="absolute left-[12%] top-1/2 -translate-y-1/2"
+        >
           <Seat
             name={nameOf(leftUid)}
             tileCount={handCounts[leftUid] ?? 0}
             isTurn={leftUid === currentTurnUid}
           />
         </div>
-        <div className="absolute right-[12%] top-1/2 -translate-y-1/2">
+        <div
+          data-seat={rightUid}
+          className="absolute right-[12%] top-1/2 -translate-y-1/2"
+        >
           <Seat
             name={nameOf(rightUid)}
             tileCount={handCounts[rightUid] ?? 0}
@@ -148,19 +234,23 @@ export function GameTable({
             Your own pile (bottom-right) is also the discard drop target. */}
         <div
           data-discard-target
+          data-pile={(myIndex + 0) % count}
           className={`absolute bottom-2 right-2 rounded-md transition-shadow ${
             canDiscard ? 'ring-2 ring-amber-400' : ''
           }`}
         >
           <DiscardPile tiles={pileAt(0)} />
         </div>
-        <div className="absolute right-2 top-2">
+        <div data-pile={(myIndex + 1) % count} className="absolute right-2 top-2">
           <DiscardPile tiles={pileAt(1)} />
         </div>
-        <div className="absolute left-2 top-2">
+        <div data-pile={(myIndex + 2) % count} className="absolute left-2 top-2">
           <DiscardPile tiles={pileAt(2)} />
         </div>
-        <div className="absolute bottom-2 left-2">
+        <div
+          data-pile={(myIndex + 3) % count}
+          className="absolute bottom-2 left-2"
+        >
           <DiscardPile
             tiles={leftPile}
             takeable={canTakeLeft}
@@ -232,6 +322,17 @@ export function GameTable({
           <Tile tile={leftTop.face} />
         </div>
       )}
+
+      {/* Animated opponent moves */}
+      {flights.map((flight) => (
+        <FlyingTile
+          key={flight.key}
+          flight={flight}
+          onDone={() =>
+            setFlights((current) => current.filter((f) => f.key !== flight.key))
+          }
+        />
+      ))}
     </div>
   );
 }
