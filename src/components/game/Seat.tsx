@@ -1,0 +1,32 @@
+interface SeatProps {
+  name: string;
+  /** Number of tiles the opponent holds (rendered as face-down backs). */
+  tileCount: number;
+  /** Highlight when it's this player's turn (static ring, no animation). */
+  isTurn?: boolean;
+}
+
+/** An opponent's seat: name plus a small fan of face-down tiles. */
+export function Seat({ name, tileCount, isTurn = false }: SeatProps) {
+  const shown = Math.min(tileCount, 6);
+
+  return (
+    <div
+      className={`flex flex-col items-center gap-1.5 rounded-lg bg-black/20 px-3 py-2 ${
+        isTurn ? 'ring-2 ring-amber-400' : ''
+      }`}
+    >
+      <span className="max-w-28 truncate text-sm font-medium text-stone-100">
+        {name}
+      </span>
+      <div className="flex -space-x-3">
+        {Array.from({ length: shown }).map((_, index) => (
+          <div
+            key={index}
+            className="h-7 w-5 rounded border border-emerald-950/60 bg-emerald-800"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
 import { useAuthListener } from '@/hooks/useAuthListener';
@@ -14,6 +14,9 @@ const CreateLobbyPage = lazy(() =>
 const LobbyPage = lazy(() =>
   import('@/pages/LobbyPage').then((m) => ({ default: m.LobbyPage })),
 );
+const GamePage = lazy(() =>
+  import('@/pages/GamePage').then((m) => ({ default: m.GamePage })),
+);
 
 function App() {
   // Bind theme and auth state to the app once at the root.
@@ -21,14 +24,17 @@ function App() {
   useAuthListener();
 
   return (
-    <Routes>
-      <Route element={<RootLayout />}>
-        <Route index element={<LobbyListPage />} />
-        <Route path="create" element={<CreateLobbyPage />} />
-        <Route path="lobby/:id" element={<LobbyPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+    <Suspense fallback={null}>
+      <Routes>
+        <Route element={<RootLayout />}>
+          <Route index element={<LobbyListPage />} />
+          <Route path="create" element={<CreateLobbyPage />} />
+          <Route path="lobby/:id" element={<LobbyPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+        <Route path="game/:id" element={<GamePage />} />
+      </Routes>
+    </Suspense>
   );
 }
 

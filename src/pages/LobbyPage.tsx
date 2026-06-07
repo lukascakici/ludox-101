@@ -210,9 +210,12 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
         {/* Actions: join / leave / start */}
         <div className="mt-5 space-y-2">
           {inProgress ? (
-            <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
-              Oyun devam ediyor. (Oyun ekranı yakında.)
-            </p>
+            <Link
+              to={`/game/${lobby.id}`}
+              className="block w-full rounded-md bg-zinc-900 px-4 py-2.5 text-center text-sm font-semibold text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+            >
+              Masaya Gir
+            </Link>
           ) : isMember ? (
             <>
               {!full && (
