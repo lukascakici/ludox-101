@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Lobbies — public game rooms.
+    match /lobbies/{lobbyId} {
+      // Any signed-in user (guest or registered) can browse lobbies.
+      allow read: if request.auth != null;
+
+      // A signed-in user may create a lobby only as themselves (host).
+      allow create: if request.auth != null
+        && request.resource.data.hostId == request.auth.uid;
+
+      // For now only the host can modify/remove the lobby.
+      // (Join/leave by other players will be opened up in a later phase.)
+      allow update, delete: if request.auth != null
+        && resource.data.hostId == request.auth.uid;
+    }
+  }
+}

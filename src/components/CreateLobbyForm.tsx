@@ -19,10 +19,11 @@ import {
   turnDurationOptions,
 } from '@/constants/lobby';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { Input } from '@/components/ui/Input';
 
 interface CreateLobbyFormProps {
-  /** Called with validated form data. Persistence is wired in a later phase. */
-  onSubmit: (input: CreateLobbyInput) => void;
+  /** Called with validated form data; may run async persistence. */
+  onSubmit: (input: CreateLobbyInput) => Promise<void> | void;
 }
 
 /** Section wrapper: a Turkish label above its control. */
@@ -97,6 +98,7 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
   );
   const [isPrivate, setIsPrivate] = useState<boolean>(DEFAULTS.isPrivate);
   const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const trimmedName = name.trim();
   const isPasswordMissing = isPrivate && password.trim().length === 0;
@@ -107,9 +109,9 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
   const isSeries = bestOf > 1;
   const roundsLabel = isSeries ? 'Set Başına Tur' : 'Tur Sayısı';
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || submitting) return;
 
     const gameRules: Okey101Rules = { floorPenalty, rekorPenalty, doubling };
 
@@ -129,11 +131,13 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
       ...(isPrivate ? { password: password.trim() } : {}),
     };
 
-    onSubmit(input);
+    try {
+      setSubmitting(true);
+      await onSubmit(input);
+    } finally {
+      setSubmitting(false);
+    }
   }
-
-  const inputClasses =
-    'w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-felt-800 dark:bg-felt-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-felt-700';
 
   return (
     <form
@@ -148,13 +152,12 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
       </div>
 
       <Field label="Lobi Adı">
-        <input
+        <Input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={40}
           placeholder="Örn. Akşam Okeyi"
-          className={inputClasses}
         />
       </Field>
 
@@ -199,7 +202,7 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
 
       <Field label={roundsLabel}>
         <div className="flex items-center gap-3">
-          <input
+          <Input
             type="number"
             inputMode="numeric"
             min={MIN_ROUNDS_PER_SET}
@@ -207,7 +210,7 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
             value={roundsPerSet}
             onChange={(e) => setRoundsPerSet(Number(e.target.value))}
             onBlur={() => setRoundsPerSet((r) => clampRounds(r))}
-            className={`${inputClasses} w-24`}
+            className="w-24"
           />
           <div className="flex gap-2">
             {[5, 7, 11].map((preset) => (
@@ -279,23 +282,22 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
 
       {isPrivate && (
         <Field label="Şifre">
-          <input
+          <Input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             maxLength={32}
             placeholder="Lobi şifresi"
-            className={inputClasses}
           />
         </Field>
       )}
 
       <button
         type="submit"
-        disabled={!canSubmit}
+        disabled={!canSubmit || submitting}
         className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
       >
-        Lobi Oluştur
+        {submitting ? 'Oluşturuluyor…' : 'Lobi Oluştur'}
       </button>
     </form>
   );
