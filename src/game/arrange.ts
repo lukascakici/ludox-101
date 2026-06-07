@@ -43,7 +43,7 @@ function combinations<T>(items: T[], k: number): T[][] {
  * jokers in the gap positions they fill (matching the value convention, which
  * extends a run upward). Groups keep their order.
  */
-function orderMeld(tiles: Tile[], okey: OkeyMatch | null): Tile[] {
+export function orderMeld(tiles: Tile[], okey: OkeyMatch | null): Tile[] {
   const info = classifyMeld(
     tiles.map((t) => t.face),
     okey,

@@ -370,6 +370,10 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
             value={rules.doubling ? 'Katlamalı' : 'Katlamasız'}
           />
           <SummaryRow
+            label="Yardım"
+            value={(settings.assisted ?? true) ? 'Destekli' : 'Desteksiz'}
+          />
+          <SummaryRow
             label="Gizlilik"
             value={settings.isPrivate ? 'Şifreli' : 'Herkese Açık'}
           />

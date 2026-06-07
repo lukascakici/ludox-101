@@ -78,6 +78,8 @@ export interface LobbySettings {
   turnDuration: TurnDuration;
   /** Is this a private/password-protected lobby? (The password itself is NOT stored in the settings object.) */
   isPrivate: boolean;
+  /** Assisted mode: shows helpers (auto-arrange, score, işlenebilir markers, auto-işle). */
+  assisted: boolean;
   /** Okey 101 rule toggles. */
   gameRules: Okey101Rules;
 }

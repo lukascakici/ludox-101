@@ -105,6 +105,7 @@ export function LobbyForm({
     defaults.gameRules.rekorPenalty,
   );
   const [doubling, setDoubling] = useState<boolean>(defaults.gameRules.doubling);
+  const [assisted, setAssisted] = useState<boolean>(defaults.assisted ?? true);
   const [turnDuration, setTurnDuration] = useState<TurnDuration>(
     defaults.turnDuration,
   );
@@ -135,6 +136,7 @@ export function LobbyForm({
       matchFormat: { roundsPerSet: clampRounds(roundsPerSet), bestOf },
       turnDuration,
       isPrivate,
+      assisted,
       gameRules,
     };
 
@@ -262,6 +264,14 @@ export function LobbyForm({
         offLabel="Katlamasız"
         value={doubling}
         onChange={setDoubling}
+      />
+
+      <RuleToggle
+        label="Yardım (Seri/Çift Diz, işaretler, otomatik işle)"
+        onLabel="Destekli"
+        offLabel="Desteksiz"
+        value={assisted}
+        onChange={setAssisted}
       />
 
       <Field label="Hamle Süresi">

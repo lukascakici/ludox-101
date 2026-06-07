@@ -8,6 +8,7 @@ import { Tile } from './Tile';
 import { FlyingTile, type Flight, type Point } from './FlyingTile';
 import { usePointerDrag, isOverSelector } from './usePointerDrag';
 import { computeOkey, isOkeyTile } from '@/game/okey';
+import { classifyMeld } from '@/game/melds';
 import {
   arrangeBestMelds,
   arrangePairs,
@@ -42,11 +43,14 @@ interface GameTableProps {
   melds: TableMeld[];
   /** Whether the player may process (işle) tiles onto table melds now. */
   canProcess: boolean;
+  /** Assisted mode: show helpers (auto-arrange, score, markers, auto-işle). */
+  assisted: boolean;
   onDraw: () => void;
   onDiscard: (tileId: string) => void;
   onTakeDiscard: () => void;
   onOpen: (groups: TileModel[][]) => void;
   onProcess: (meldId: string, tileId: string) => void;
+  onAutoProcess: () => void;
 }
 
 const RACK_ZONE = '[data-rack-zone]';
@@ -74,11 +78,13 @@ export function GameTable({
   hasOpened,
   melds,
   canProcess,
+  assisted,
   onDraw,
   onDiscard,
   onTakeDiscard,
   onOpen,
   onProcess,
+  onAutoProcess,
 }: GameTableProps) {
   const count = playerOrder.length || 1;
   const foundIndex = currentUid ? playerOrder.indexOf(currentUid) : -1;
@@ -117,6 +123,22 @@ export function GameTable({
   const rackRef = useRef<RackHandle>(null);
   const [currentGroups, setCurrentGroups] = useState<TileModel[][]>([]);
   const score = scoreArrangement(currentGroups, okey);
+
+  // Hand tiles that can be added to some table meld (işlenebilir).
+  const processableIds = new Set<string>();
+  if (canProcess && assisted) {
+    for (const tile of hand) {
+      for (const meld of melds) {
+        if (
+          classifyMeld([...meld.tiles, tile].map((t) => t.face), okey)
+        ) {
+          processableIds.add(tile.id);
+          break;
+        }
+      }
+    }
+  }
+  const hasProcessable = processableIds.size > 0;
 
   const deckDrag = usePointerDrag((x, y) => {
     if (isOverSelector(x, y, RACK_ZONE)) {
@@ -392,6 +414,7 @@ export function GameTable({
             onDiscard={handleRackDiscard}
             canProcess={canProcess}
             onProcess={onProcess}
+            processableIds={processableIds}
             onArrange={setCurrentGroups}
             incomingSlot={pendingSlot}
             onIncomingPlaced={() => setPendingSlot(null)}
@@ -401,7 +424,7 @@ export function GameTable({
           />
 
           <div className="flex flex-col gap-2">
-            {/* Score: series points / 101 and pairs / 5 */}
+            {/* Açma ilerlemesi (x/101, x/5) yardımsız modda da görünür. */}
             <div className="flex gap-1 text-xs">
               <span
                 className={`rounded-md border px-2 py-1 font-semibold tabular-nums ${
@@ -423,33 +446,48 @@ export function GameTable({
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() =>
-                rackRef.current?.setArrangement(arrangeBestMelds(hand, okey))
-              }
-              className="rounded-md border border-stone-100/30 px-3 py-1.5 text-sm font-medium text-stone-100 transition-colors hover:bg-white/10"
-            >
-              Seri Diz
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                rackRef.current?.setArrangement(arrangePairs(hand, okey))
-              }
-              className="rounded-md border border-stone-100/30 px-3 py-1.5 text-sm font-medium text-stone-100 transition-colors hover:bg-white/10"
-            >
-              Çift Diz
-            </button>
-            {canOpen && (
+            {assisted && (
               <button
                 type="button"
-                onClick={() => onOpen(currentGroups)}
-                className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400"
+                onClick={() =>
+                  rackRef.current?.setArrangement(arrangeBestMelds(hand, okey))
+                }
+                className="rounded-md border border-stone-100/30 px-3 py-1.5 text-sm font-medium text-stone-100 transition-colors hover:bg-white/10"
               >
-                {hasOpened ? 'Per Koy' : 'Aç'}
+                Seri Diz
               </button>
             )}
+            {assisted && (
+              <button
+                type="button"
+                onClick={() =>
+                  rackRef.current?.setArrangement(arrangePairs(hand, okey))
+                }
+                className="rounded-md border border-stone-100/30 px-3 py-1.5 text-sm font-medium text-stone-100 transition-colors hover:bg-white/10"
+              >
+                Çift Diz
+              </button>
+            )}
+            {assisted && (
+              <button
+                type="button"
+                onClick={onAutoProcess}
+                disabled={!(canProcess && hasProcessable)}
+                className="rounded-md border border-amber-400 px-3 py-1.5 text-sm font-medium text-amber-200 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Otomatik İşle
+              </button>
+            )}
+
+            {/* Aç / Per Koy stays in place; only its enabled state changes. */}
+            <button
+              type="button"
+              onClick={() => onOpen(currentGroups)}
+              disabled={!canOpen}
+              className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {hasOpened ? 'Per Koy' : 'Aç'}
+            </button>
           </div>
         </div>
       </div>

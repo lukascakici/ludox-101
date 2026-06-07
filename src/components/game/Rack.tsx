@@ -37,6 +37,8 @@ interface RackProps {
   canProcess?: boolean;
   /** Called with (meldId, tileId) when a tile is dropped on a table meld. */
   onProcess?: (meldId: string, tileId: string) => void;
+  /** Ids of hand tiles that can be processed onto a table meld (show a marker). */
+  processableIds?: Set<string>;
   /** Reports the rack's contiguous groups (per row) whenever they change. */
   onArrange?: (groups: TileModel[][]) => void;
 }
@@ -128,6 +130,7 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
     onIncomingPlaced,
     canProcess = false,
     onProcess,
+    processableIds,
     onArrange,
   },
   ref,
@@ -254,12 +257,9 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
         if (meldElement && canProcessRef.current && onProcessRef.current) {
           const meldId = (meldElement as HTMLElement).dataset.meldId;
           if (meldId) {
+            // Don't clear optimistically — if the server rejects (invalid), the
+            // tile stays; on success the hand update removes it via reconcile.
             onProcessRef.current(meldId, active.tile.id);
-            setSlots((prev) =>
-              prev.map((slot, index) =>
-                index === active.fromIndex ? null : slot,
-              ),
-            );
             setDrag(null);
             return;
           }
@@ -334,7 +334,7 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
                       key={slotIndex}
                       data-slot-index={slotIndex}
                       onPointerDown={(e) => handlePointerDown(e, slotIndex)}
-                      className={filled ? 'cursor-grab touch-none' : ''}
+                      className={`relative ${filled ? 'cursor-grab touch-none' : ''}`}
                     >
                       {filled ? (
                         <Tile
@@ -343,6 +343,11 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
                         />
                       ) : (
                         <div className="h-12 w-9" />
+                      )}
+                      {filled && processableIds?.has(tile.id) && (
+                        <span className="pointer-events-none absolute left-1/2 top-full z-10 flex h-3 w-3 -translate-x-1/2 -translate-y-[55%] items-center justify-center rounded-full border-2 border-red-500 bg-amber-900">
+                          <span className="h-1 w-1 rounded-full bg-red-500" />
+                        </span>
                       )}
                     </div>
                   );

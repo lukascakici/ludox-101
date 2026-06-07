@@ -12,6 +12,7 @@ import { db } from './config';
 import { deal } from '@/game/deal';
 import { computeOkey } from '@/game/okey';
 import { classifyMeld, OPENING_MIN } from '@/game/melds';
+import { orderMeld } from '@/game/arrange';
 import { LobbyStatus, type Lobby, type LobbyPlayer } from '@/types/lobby';
 import type { GameState, PlayerHand, TableMeld } from '@/types/game';
 import type { Tile } from '@/game/tiles';
@@ -235,7 +236,7 @@ export async function openMelds(
         id: `${uid}-${existingMelds.length + index}`,
         owner: uid,
         kind: info.kind,
-        tiles: group,
+        tiles: orderMeld(group, game.okey),
       });
     });
     // The 101 threshold only applies to the FIRST opening.
@@ -305,9 +306,9 @@ export async function processTile(
     if (!tile) throw new GameActionError('tile-not-in-hand');
 
     const target = melds[meldIndex];
-    const newTiles = [...target.tiles, tile];
+    const combined = [...target.tiles, tile];
     const info = classifyMeld(
-      newTiles.map((t) => t.face),
+      combined.map((t) => t.face),
       game.okey,
     );
     if (!info) throw new GameActionError('invalid-meld');
@@ -315,8 +316,12 @@ export async function processTile(
     const remaining = handTiles.filter((t) => t.id !== tileId);
     if (remaining.length < 1) throw new GameActionError('must-keep-tile');
 
+    // Order the meld so the new tile sits in its proper place (e.g. 4 before 5-6-7).
+    const orderedTiles = orderMeld(combined, game.okey);
     const newMelds = melds.map((meld, index) =>
-      index === meldIndex ? { ...meld, tiles: newTiles, kind: info.kind } : meld,
+      index === meldIndex
+        ? { ...meld, tiles: orderedTiles, kind: info.kind }
+        : meld,
     );
 
     tx.update(handRef, { tiles: remaining });
@@ -332,6 +337,51 @@ export async function processTile(
       tile: tile.face,
     });
   });
+}
+
+/**
+ * Auto-işleme: repeatedly finds a hand tile that fits some table meld and
+ * processes it, keeping at least one tile to discard. Reads fresh state each
+ * round (melds change as tiles are added).
+ */
+export async function autoProcess(lobbyId: string, uid: string): Promise<void> {
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const handRef = doc(gameRef, 'hands', uid);
+
+  for (let guard = 0; guard < 40; guard++) {
+    const [gameSnap, handSnap] = await Promise.all([
+      getDoc(gameRef),
+      getDoc(handRef),
+    ]);
+    if (!gameSnap.exists() || !handSnap.exists()) return;
+
+    const game = gameSnap.data() as GameState;
+    if (game.playerOrder[game.turnIndex] !== uid) return;
+    if (game.turnPhase !== 'discard') return;
+    if (!(game.opened ?? {})[uid]) return;
+
+    const handTiles = (handSnap.data() as PlayerHand).tiles;
+    if (handTiles.length <= 1) return; // keep one to discard
+
+    const melds = game.melds ?? [];
+    let move: { meldId: string; tileId: string } | null = null;
+    for (const tile of handTiles) {
+      for (const meld of melds) {
+        const valid = classifyMeld(
+          [...meld.tiles, tile].map((t) => t.face),
+          game.okey,
+        );
+        if (valid) {
+          move = { meldId: meld.id, tileId: tile.id };
+          break;
+        }
+      }
+      if (move) break;
+    }
+    if (!move) return;
+
+    await processTile(lobbyId, uid, move.meldId, move.tileId);
+  }
 }
 
 /** Subscribes to the public game state. Calls back with `null` if no game yet. */

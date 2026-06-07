@@ -5,6 +5,7 @@ import {
   subscribeToLobby,
 } from '@/services/firebase/lobbyService';
 import {
+  autoProcess,
   discardTile,
   drawFromDeck,
   openMelds,
@@ -255,6 +256,15 @@ export function GamePage() {
     }
   }
 
+  async function handleAutoProcess() {
+    if (!id || !uid) return;
+    try {
+      await autoProcess(id, uid);
+    } catch (err) {
+      console.error('autoProcess failed:', err);
+    }
+  }
+
   return (
     <>
       <GameTable
@@ -274,11 +284,13 @@ export function GamePage() {
         hasOpened={hasOpened}
         melds={tableMelds}
         canProcess={canProcess}
+        assisted={lobby.settings.assisted ?? true}
         onDraw={handleDraw}
         onTakeDiscard={handleTakeDiscard}
         onDiscard={handleDiscard}
         onOpen={handleOpen}
         onProcess={handleProcess}
+        onAutoProcess={handleAutoProcess}
       />
       <RotateDevicePrompt />
 

@@ -76,6 +76,7 @@ export function createDefaultLobbySettings(): LobbySettings {
     matchFormat: { roundsPerSet: 11, bestOf: 1 },
     turnDuration: 30,
     isPrivate: false,
+    assisted: true,
     gameRules: {
       floorPenalty: true,
       rekorPenalty: true,
