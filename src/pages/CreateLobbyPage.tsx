@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CreateLobbyForm } from '@/components/CreateLobbyForm';
+import { LobbyForm } from '@/components/LobbyForm';
 import { createLobby } from '@/services/firebase/lobbyService';
 import { getLobbyErrorMessage } from '@/constants/firestoreErrors';
 import { useAuthStore } from '@/store/authStore';
@@ -36,7 +36,7 @@ export function CreateLobbyPage() {
         ← Lobilere dön
       </Link>
 
-      <CreateLobbyForm onSubmit={handleCreate} />
+      <LobbyForm mode="create" onSubmit={handleCreate} />
 
       {error && (
         <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">

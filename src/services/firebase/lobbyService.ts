@@ -1,11 +1,17 @@
 import {
   addDoc,
   collection,
+  deleteField,
   doc,
   getDoc,
+  onSnapshot,
+  query,
   serverTimestamp,
   Timestamp,
+  updateDoc,
+  where,
   type DocumentData,
+  type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './config';
 import {
@@ -80,20 +86,16 @@ export async function createLobby(
 }
 
 /**
- * Fetches a single lobby by id, or `null` if it doesn't exist.
- * Converts the Firestore `Timestamp` to epoch milliseconds and drops the
- * password hash from the client-facing object.
+ * Maps a raw Firestore document into a client `Lobby`. Converts the server
+ * `Timestamp` to epoch milliseconds and omits the password hash so it never
+ * reaches client-facing objects.
  */
-export async function getLobby(id: string): Promise<Lobby | null> {
-  const snapshot = await getDoc(doc(db, LOBBIES_COLLECTION, id));
-  if (!snapshot.exists()) return null;
-
-  const data = snapshot.data();
+function toLobby(id: string, data: DocumentData): Lobby {
   const createdAt =
     data.createdAt instanceof Timestamp ? data.createdAt.toMillis() : 0;
 
   return {
-    id: snapshot.id,
+    id,
     hostId: data.hostId,
     name: data.name,
     settings: data.settings,
@@ -102,4 +104,91 @@ export async function getLobby(id: string): Promise<Lobby | null> {
     maxPlayers: data.maxPlayers,
     createdAt,
   } as Lobby;
+}
+
+/**
+ * Fetches a single lobby by id, or `null` if it doesn't exist.
+ */
+export async function getLobby(id: string): Promise<Lobby | null> {
+  const snapshot = await getDoc(doc(db, LOBBIES_COLLECTION, id));
+  if (!snapshot.exists()) return null;
+  return toLobby(snapshot.id, snapshot.data());
+}
+
+/**
+ * Subscribes to a single lobby in real time. Calls back with `null` if the
+ * lobby is deleted or never existed. Returns the unsubscribe function.
+ */
+export function subscribeToLobby(
+  id: string,
+  onChange: (lobby: Lobby | null) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    doc(db, LOBBIES_COLLECTION, id),
+    (snapshot) => {
+      onChange(snapshot.exists() ? toLobby(snapshot.id, snapshot.data()) : null);
+    },
+    (error) => onError?.(error),
+  );
+}
+
+/**
+ * Updates an existing lobby's name and settings (host-only, enforced by rules).
+ * Password handling:
+ *  - made public  -> existing hash is removed,
+ *  - new password  -> re-hashed and stored,
+ *  - private with no new password -> existing hash is kept untouched.
+ */
+export async function updateLobby(
+  id: string,
+  input: CreateLobbyInput,
+): Promise<void> {
+  const { name, settings, password } = input;
+
+  const data: DocumentData = { name, settings };
+  if (!settings.isPrivate) {
+    data.passwordHash = deleteField();
+  } else if (password) {
+    data.passwordHash = await hashPassword(password);
+  }
+
+  await updateDoc(doc(db, LOBBIES_COLLECTION, id), data);
+}
+
+/**
+ * Starts the match: moves the lobby from Waiting to InProgress. Callers must
+ * ensure the lobby is full (4 players) and that the requester is the host;
+ * Firestore rules additionally restrict updates to the host.
+ */
+export async function startLobby(id: string): Promise<void> {
+  await updateDoc(doc(db, LOBBIES_COLLECTION, id), {
+    status: LobbyStatus.InProgress,
+  });
+}
+
+/**
+ * Subscribes to the live list of open (waiting) lobbies. Sorting is done client
+ * side (newest first) to avoid needing a Firestore composite index. Returns the
+ * unsubscribe function.
+ */
+export function subscribeToOpenLobbies(
+  onChange: (lobbies: Lobby[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const openLobbies = query(
+    collection(db, LOBBIES_COLLECTION),
+    where('status', '==', LobbyStatus.Waiting),
+  );
+
+  return onSnapshot(
+    openLobbies,
+    (snapshot) => {
+      const lobbies = snapshot.docs
+        .map((document) => toLobby(document.id, document.data()))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      onChange(lobbies);
+    },
+    (error) => onError?.(error),
+  );
 }

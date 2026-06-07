@@ -18,9 +18,17 @@ import {
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Input } from '@/components/ui/Input';
 
-interface CreateLobbyFormProps {
+type LobbyFormMode = 'create' | 'edit';
+
+interface LobbyFormProps {
+  mode: LobbyFormMode;
+  /** Pre-fill values (edit mode). Defaults are used when omitted (create mode). */
+  initialName?: string;
+  initialSettings?: LobbySettings;
   /** Called with validated form data; may run async persistence. */
   onSubmit: (input: CreateLobbyInput) => Promise<void> | void;
+  /** Shown as a secondary action in edit mode (e.g. to close the editor). */
+  onCancel?: () => void;
 }
 
 /** Section wrapper: a Turkish label above its control. */
@@ -64,40 +72,51 @@ function RuleToggle({
   );
 }
 
-const DEFAULTS = createDefaultLobbySettings();
-
 function clampRounds(value: number): number {
   if (Number.isNaN(value)) return MIN_ROUNDS_PER_SET;
   return Math.min(MAX_ROUNDS_PER_SET, Math.max(MIN_ROUNDS_PER_SET, value));
 }
 
 /**
- * Create Lobby form. Holds each setting as independent local state, then
- * assembles `MatchFormat` and the game-specific `Okey101Rules` on submit.
+ * Reusable lobby form for both creating a lobby and editing its settings.
+ * Holds each setting as independent local state, then assembles `MatchFormat`
+ * and `Okey101Rules` on submit.
  */
-export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
-  const [name, setName] = useState('');
-  const [gameMode, setGameMode] = useState<GameMode>(DEFAULTS.gameMode);
+export function LobbyForm({
+  mode,
+  initialName,
+  initialSettings,
+  onSubmit,
+  onCancel,
+}: LobbyFormProps) {
+  const defaults = initialSettings ?? createDefaultLobbySettings();
+  const wasPrivate = initialSettings?.isPrivate ?? false;
+
+  const [name, setName] = useState(initialName ?? '');
+  const [gameMode, setGameMode] = useState<GameMode>(defaults.gameMode);
   const [roundsPerSet, setRoundsPerSet] = useState<number>(
-    DEFAULTS.matchFormat.roundsPerSet,
+    defaults.matchFormat.roundsPerSet,
   );
-  const [bestOf, setBestOf] = useState<number>(DEFAULTS.matchFormat.bestOf);
+  const [bestOf, setBestOf] = useState<number>(defaults.matchFormat.bestOf);
   const [floorPenalty, setFloorPenalty] = useState<boolean>(
-    DEFAULTS.gameRules.floorPenalty,
+    defaults.gameRules.floorPenalty,
   );
   const [rekorPenalty, setRekorPenalty] = useState<boolean>(
-    DEFAULTS.gameRules.rekorPenalty,
+    defaults.gameRules.rekorPenalty,
   );
-  const [doubling, setDoubling] = useState<boolean>(DEFAULTS.gameRules.doubling);
+  const [doubling, setDoubling] = useState<boolean>(defaults.gameRules.doubling);
   const [turnDuration, setTurnDuration] = useState<TurnDuration>(
-    DEFAULTS.turnDuration,
+    defaults.turnDuration,
   );
-  const [isPrivate, setIsPrivate] = useState<boolean>(DEFAULTS.isPrivate);
+  const [isPrivate, setIsPrivate] = useState<boolean>(defaults.isPrivate);
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const trimmedName = name.trim();
-  const isPasswordMissing = isPrivate && password.trim().length === 0;
+  // A password is required only when making a lobby private without an existing
+  // one (i.e. on create, or when switching public -> private while editing).
+  const passwordRequired = isPrivate && (mode === 'create' || !wasPrivate);
+  const isPasswordMissing = passwordRequired && password.trim().length === 0;
   const canSubmit = trimmedName.length > 0 && !isPasswordMissing;
 
   // When bestOf is 1 the match is a single flat set, so the rounds input means
@@ -119,11 +138,12 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
       gameRules,
     };
 
-    // Only include `password` when relevant (exactOptionalPropertyTypes-safe).
+    // Include `password` only when one was actually entered. In edit mode a
+    // blank password on an already-private lobby keeps the existing one.
     const input: CreateLobbyInput = {
       name: trimmedName,
       settings,
-      ...(isPrivate ? { password: password.trim() } : {}),
+      ...(isPrivate && password.trim() ? { password: password.trim() } : {}),
     };
 
     try {
@@ -134,15 +154,23 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
     }
   }
 
+  const isEdit = mode === 'edit';
+  const passwordPlaceholder =
+    isEdit && wasPrivate ? 'Boş bırakırsan mevcut şifre korunur' : 'Lobi şifresi';
+
   return (
     <form
       onSubmit={handleSubmit}
       className="space-y-6 rounded-lg border border-zinc-200 bg-white p-6 dark:border-felt-800 dark:bg-felt-900"
     >
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">Lobi Oluştur</h2>
+        <h2 className="text-xl font-semibold tracking-tight">
+          {isEdit ? 'Ayarları Düzenle' : 'Lobi Oluştur'}
+        </h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Oyun ayarlarını seç ve yeni bir masa aç.
+          {isEdit
+            ? 'Oyun başlamadan ayarları güncelleyebilirsin.'
+            : 'Oyun ayarlarını seç ve yeni bir masa aç.'}
         </p>
       </div>
 
@@ -161,9 +189,9 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
           ariaLabel="Oyun modu"
           value={gameMode}
           onChange={setGameMode}
-          options={(Object.values(GameMode) as GameMode[]).map((mode) => ({
-            value: mode,
-            label: gameModeLabels[mode],
+          options={(Object.values(GameMode) as GameMode[]).map((m) => ({
+            value: m,
+            label: gameModeLabels[m],
           }))}
         />
       </Field>
@@ -267,18 +295,35 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             maxLength={32}
-            placeholder="Lobi şifresi"
+            placeholder={passwordPlaceholder}
           />
         </Field>
       )}
 
-      <button
-        type="submit"
-        disabled={!canSubmit || submitting}
-        className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-      >
-        {submitting ? 'Oluşturuluyor…' : 'Lobi Oluştur'}
-      </button>
+      <div className="flex gap-3">
+        {isEdit && onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="w-full rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-felt-700 dark:text-zinc-200 dark:hover:bg-felt-800"
+          >
+            Vazgeç
+          </button>
+        )}
+        <button
+          type="submit"
+          disabled={!canSubmit || submitting}
+          className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+        >
+          {submitting
+            ? isEdit
+              ? 'Kaydediliyor…'
+              : 'Oluşturuluyor…'
+            : isEdit
+              ? 'Kaydet'
+              : 'Lobi Oluştur'}
+        </button>
+      </div>
     </form>
   );
 }

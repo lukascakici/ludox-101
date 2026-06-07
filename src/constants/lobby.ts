@@ -1,4 +1,10 @@
-import { GameMode, type LobbySettings, type TurnDuration } from '@/types/lobby';
+import {
+  GameMode,
+  type Lobby,
+  type LobbySettings,
+  type MatchFormat,
+  type TurnDuration,
+} from '@/types/lobby';
 
 /**
  * Presentation layer: maps English enum/option values to Turkish display
@@ -15,8 +21,13 @@ export const gameModeLabels: Record<GameMode, string> = {
 /*  Selectable option sets                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Okey 101 is played by 4 players. */
+/** Okey 101 is played by EXACTLY 4 players (both the min and the max). */
 export const OKEY101_MAX_PLAYERS = 4;
+
+/** A lobby is full once it has its required number of players. */
+export function isLobbyFull(lobby: Lobby): boolean {
+  return lobby.players.length >= lobby.maxPlayers;
+}
 
 /** Allowed turn durations (seconds). */
 export const turnDurationOptions: readonly TurnDuration[] = [15, 30, 60];
@@ -41,6 +52,15 @@ export const bestOfLabels: Record<number, string> = {
   5: 'Best of 5',
   7: 'Best of 7',
 };
+
+/** Human-readable Turkish summary of a match format (e.g. "Best of 3 · set başına 5 tur"). */
+export function formatMatchSummary(format: MatchFormat): string {
+  if (format.bestOf > 1) {
+    const label = bestOfLabels[format.bestOf] ?? `Best of ${format.bestOf}`;
+    return `${label} · set başına ${format.roundsPerSet} tur`;
+  }
+  return `Düz · ${format.roundsPerSet} tur`;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Defaults                                                                   */
