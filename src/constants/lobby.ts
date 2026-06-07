@@ -1,21 +1,10 @@
-import {
-  GameMode,
-  GameType,
-  type LobbySettings,
-  type TurnDuration,
-} from '@/types/lobby';
+import { GameMode, type LobbySettings, type TurnDuration } from '@/types/lobby';
 
 /**
  * Presentation layer: maps English enum/option values to Turkish display
  * strings. Keeping labels here (instead of hardcoding Turkish in components)
  * keeps the UI language and the code decoupled.
  */
-
-export const gameTypeLabels: Record<GameType, string> = {
-  [GameType.Okey101]: 'Okey 101',
-  [GameType.Tavla]: 'Tavla',
-  [GameType.Batak]: 'Batak',
-};
 
 export const gameModeLabels: Record<GameMode, string> = {
   [GameMode.Paired]: 'Eşli (2v2)',
@@ -26,15 +15,8 @@ export const gameModeLabels: Record<GameMode, string> = {
 /*  Selectable option sets                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Games currently playable. Others are shown but disabled ("yakında"). */
-export const availableGameTypes: readonly GameType[] = [GameType.Okey101];
-
-/** Max players per game type (used when persisting the lobby). */
-export const gamePlayerCounts: Record<GameType, number> = {
-  [GameType.Okey101]: 4,
-  [GameType.Tavla]: 2,
-  [GameType.Batak]: 4,
-};
+/** Okey 101 is played by 4 players. */
+export const OKEY101_MAX_PLAYERS = 4;
 
 /** Allowed turn durations (seconds). */
 export const turnDurationOptions: readonly TurnDuration[] = [15, 30, 60];
@@ -68,9 +50,8 @@ export const bestOfLabels: Record<number, string> = {
  * Sensible default settings for a brand-new Okey 101 lobby.
  * Returns a fresh object each call so callers can mutate form state safely.
  */
-export function createDefaultLobbySettings(): LobbySettings<GameType.Okey101> {
+export function createDefaultLobbySettings(): LobbySettings {
   return {
-    gameType: GameType.Okey101,
     gameMode: GameMode.Paired,
     matchFormat: { roundsPerSet: 11, bestOf: 1 },
     turnDuration: 30,

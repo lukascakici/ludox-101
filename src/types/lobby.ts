@@ -1,11 +1,9 @@
 /**
  * Lobby type definitions.
  *
- * Design goal: the system must be able to grow WITHOUT breaking when new games
- * (Tavla, Batak, ...) and new rules are added later. Therefore:
- *  - Common lobby settings are grouped under `BaseLobbySettings`.
- *  - Game-specific rules are declared in the `GameRulesMap` registry; adding a
- *    new game means adding a new key to that map (Open/Closed Principle).
+ * This repository is dedicated to Okey 101 only. Other games will live in their
+ * own repositories on separate subdomains, so there is intentionally no
+ * multi-game abstraction here — the settings model is flat and Okey-specific.
  *
  * Strict typing: `any` is never used, and fields that must be immutable are
  * marked `readonly`.
@@ -14,13 +12,6 @@
 /* -------------------------------------------------------------------------- */
 /*  Enums                                                                      */
 /* -------------------------------------------------------------------------- */
-
-/** Game types playable on the platform. */
-export enum GameType {
-  Okey101 = 'OKEY_101',
-  Tavla = 'TAVLA',
-  Batak = 'BATAK',
-}
 
 /** How players are matched up. */
 export enum GameMode {
@@ -63,63 +54,22 @@ export interface MatchFormat {
   bestOf: number;
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Game-specific rules (extensible registry)                                  */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Common base shared by all game rule types. If a shared field is needed later,
- * it can be added in one place.
- */
-export interface BaseGameRules {
-  /** Reserved for future shared fields. */
-  readonly _placeholder?: never;
-}
-
-/** Okey 101-specific rules. */
-export interface Okey101Rules extends BaseGameRules {
+/** Okey 101 rule toggles. */
+export interface Okey101Rules {
   /** Floor-tile penalties (yere taş atma cezaları). */
   floorPenalty: boolean;
-  /** Penalty to the OPPOSING team when opening a 150+ series or 7+ pairs (rekor). */
+  /** Penalty to the OPPOSING team when opening a 153+ series or 7+ pairs (rekor). */
   rekorPenalty: boolean;
   /** Score doubling (katlama). */
   doubling: boolean;
-}
-
-/** Tavla-specific rules. (To be filled in when Tavla is implemented.) */
-export interface TavlaRules extends BaseGameRules {
-  readonly _placeholder?: never;
-}
-
-/** Batak-specific rules. (To be filled in when Batak is implemented.) */
-export interface BatakRules extends BaseGameRules {
-  readonly _placeholder?: never;
-}
-
-/**
- * Game type -> rule type mapping (registry).
- * STEPS TO ADD A NEW GAME:
- *   1) Add a value to the `GameType` enum.
- *   2) Define the corresponding `XxxRules` interface.
- *   3) Add a line to this map.
- * The type system expands automatically without touching anything else.
- */
-export interface GameRulesMap {
-  [GameType.Okey101]: Okey101Rules;
-  [GameType.Tavla]: TavlaRules;
-  [GameType.Batak]: BatakRules;
 }
 
 /* -------------------------------------------------------------------------- */
 /*  Lobby settings                                                             */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Common lobby settings shared by all games.
- * Game-specific rules are intentionally kept NOT here, but inside
- * `LobbySettings.gameRules`.
- */
-export interface BaseLobbySettings {
+/** All settings chosen when creating a lobby. */
+export interface LobbySettings {
   /** Whether the game is played paired or solo. */
   gameMode: GameMode;
   /** Round/set structure of the match. */
@@ -128,26 +78,8 @@ export interface BaseLobbySettings {
   turnDuration: TurnDuration;
   /** Is this a private/password-protected lobby? (The password itself is NOT stored in the settings object.) */
   isPrivate: boolean;
-}
-
-/**
- * Full lobby settings. Being parameterized by `T`, it binds `gameType` to
- * `gameRules`: assigning the wrong game's rules produces a compile error.
- *
- * @example
- * const s: LobbySettings<GameType.Okey101> = {
- *   gameType: GameType.Okey101,
- *   gameMode: GameMode.Paired,
- *   matchFormat: { roundsPerSet: 5, bestOf: 3 },
- *   turnDuration: 30,
- *   isPrivate: false,
- *   gameRules: { floorPenalty: true, rekorPenalty: true, doubling: false },
- * };
- */
-export interface LobbySettings<T extends GameType = GameType>
-  extends BaseLobbySettings {
-  readonly gameType: T;
-  gameRules: GameRulesMap[T];
+  /** Okey 101 rule toggles. */
+  gameRules: Okey101Rules;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -179,7 +111,7 @@ export interface Lobby {
   settings: LobbySettings;
   status: LobbyStatus;
   players: readonly LobbyPlayer[];
-  /** Maximum number of players allowed for this game type. */
+  /** Maximum number of players allowed. */
   maxPlayers: number;
   /** Hash of the password for private lobbies (optional). */
   passwordHash?: string;

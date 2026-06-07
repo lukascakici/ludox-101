@@ -1,19 +1,16 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import {
   GameMode,
-  GameType,
   type CreateLobbyInput,
   type LobbySettings,
   type Okey101Rules,
   type TurnDuration,
 } from '@/types/lobby';
 import {
-  availableGameTypes,
   bestOfLabels,
   bestOfOptions,
   createDefaultLobbySettings,
   gameModeLabels,
-  gameTypeLabels,
   MAX_ROUNDS_PER_SET,
   MIN_ROUNDS_PER_SET,
   turnDurationOptions,
@@ -80,7 +77,6 @@ function clampRounds(value: number): number {
  */
 export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
   const [name, setName] = useState('');
-  const [gameType, setGameType] = useState<GameType>(DEFAULTS.gameType);
   const [gameMode, setGameMode] = useState<GameMode>(DEFAULTS.gameMode);
   const [roundsPerSet, setRoundsPerSet] = useState<number>(
     DEFAULTS.matchFormat.roundsPerSet,
@@ -116,7 +112,6 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
     const gameRules: Okey101Rules = { floorPenalty, rekorPenalty, doubling };
 
     const settings: LobbySettings = {
-      gameType,
       gameMode,
       matchFormat: { roundsPerSet: clampRounds(roundsPerSet), bestOf },
       turnDuration,
@@ -158,21 +153,6 @@ export function CreateLobbyForm({ onSubmit }: CreateLobbyFormProps) {
           onChange={(e) => setName(e.target.value)}
           maxLength={40}
           placeholder="Örn. Akşam Okeyi"
-        />
-      </Field>
-
-      <Field label="Oyun">
-        <SegmentedControl
-          ariaLabel="Oyun türü"
-          value={gameType}
-          onChange={setGameType}
-          options={(Object.values(GameType) as GameType[]).map((type) => ({
-            value: type,
-            label: availableGameTypes.includes(type)
-              ? gameTypeLabels[type]
-              : `${gameTypeLabels[type]} (yakında)`,
-            disabled: !availableGameTypes.includes(type),
-          }))}
         />
       </Field>
 

@@ -1,7 +1,10 @@
 import {
   addDoc,
   collection,
+  doc,
+  getDoc,
   serverTimestamp,
+  Timestamp,
   type DocumentData,
 } from 'firebase/firestore';
 import { db } from './config';
@@ -9,9 +12,10 @@ import {
   GameMode,
   LobbyStatus,
   type CreateLobbyInput,
+  type Lobby,
   type LobbyPlayer,
 } from '@/types/lobby';
-import { gamePlayerCounts } from '@/constants/lobby';
+import { OKEY101_MAX_PLAYERS } from '@/constants/lobby';
 
 /** Minimal identity needed to create a lobby (comes from Firebase Auth later). */
 export interface LobbyHost {
@@ -64,7 +68,7 @@ export async function createLobby(
     settings,
     status: LobbyStatus.Waiting,
     players: [hostPlayer],
-    maxPlayers: gamePlayerCounts[settings.gameType],
+    maxPlayers: OKEY101_MAX_PLAYERS,
     createdAt: serverTimestamp(),
     ...(settings.isPrivate && password
       ? { passwordHash: await hashPassword(password) }
@@ -73,4 +77,29 @@ export async function createLobby(
 
   const ref = await addDoc(collection(db, LOBBIES_COLLECTION), docData);
   return ref.id;
+}
+
+/**
+ * Fetches a single lobby by id, or `null` if it doesn't exist.
+ * Converts the Firestore `Timestamp` to epoch milliseconds and drops the
+ * password hash from the client-facing object.
+ */
+export async function getLobby(id: string): Promise<Lobby | null> {
+  const snapshot = await getDoc(doc(db, LOBBIES_COLLECTION, id));
+  if (!snapshot.exists()) return null;
+
+  const data = snapshot.data();
+  const createdAt =
+    data.createdAt instanceof Timestamp ? data.createdAt.toMillis() : 0;
+
+  return {
+    id: snapshot.id,
+    hostId: data.hostId,
+    name: data.name,
+    settings: data.settings,
+    status: data.status,
+    players: data.players,
+    maxPlayers: data.maxPlayers,
+    createdAt,
+  } as Lobby;
 }
