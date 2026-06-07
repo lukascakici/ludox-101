@@ -1,4 +1,4 @@
-import type { GameTile, TileColor } from './Tile';
+import { MAX_VALUE, MIN_VALUE, type TileColor, type TileFace } from './tiles';
 
 /** The tile value/color that is the okey this round (one above the indicator). */
 export interface OkeyMatch {
@@ -10,14 +10,14 @@ export interface OkeyMatch {
  * Computes the okey from the indicator (gösterge): same color, one value higher
  * (13 wraps to 1). A false-joker indicator has no okey.
  */
-export function computeOkey(indicator: GameTile): OkeyMatch | null {
+export function computeOkey(indicator: TileFace): OkeyMatch | null {
   if (indicator.kind !== 'number') return null;
-  const value = indicator.value === 13 ? 1 : indicator.value + 1;
+  const value = indicator.value === MAX_VALUE ? MIN_VALUE : indicator.value + 1;
   return { color: indicator.color, value };
 }
 
 /** Whether a tile is the okey for this round. */
-export function isOkeyTile(tile: GameTile, okey: OkeyMatch | null): boolean {
+export function isOkeyTile(tile: TileFace, okey: OkeyMatch | null): boolean {
   return (
     !!okey &&
     tile.kind === 'number' &&

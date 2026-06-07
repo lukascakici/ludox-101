@@ -28,5 +28,28 @@ service cloud.firestore {
       allow delete: if request.auth != null
         && resource.data.hostId == request.auth.uid;
     }
+
+    // Game state. Pragmatic / client-authoritative for now (tighten later).
+    match /games/{gameId} {
+      // Public game state: any signed-in user may read/write.
+      allow read, write: if request.auth != null;
+
+      // Private hands: only the owner can read their own hand. Writes are
+      // permissive for now (the host deals everyone's hand on start).
+      match /hands/{uid} {
+        // Owners read their own hand; bot hands are readable (dev test only).
+        allow read: if request.auth != null
+          && (request.auth.uid == uid || uid.matches('bot-.*'));
+        allow write: if request.auth != null;
+      }
+
+      // Draw pile and move log: readable/writable by any signed-in user.
+      match /private/{docId} {
+        allow read, write: if request.auth != null;
+      }
+      match /moves/{moveId} {
+        allow read, write: if request.auth != null;
+      }
+    }
   }
 }

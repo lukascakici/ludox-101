@@ -1,0 +1,45 @@
+import type { Tile, TileFace } from '@/game/tiles';
+import type { OkeyMatch } from '@/game/okey';
+
+/** A turn has two phases: first draw a tile, then discard one. */
+export type TurnPhase = 'draw' | 'discard';
+
+export type GameStatus = 'playing' | 'finished';
+
+/**
+ * Public game state (Firestore `games/{lobbyId}`). Readable by all participants.
+ * Hand CONTENTS are private (separate per-player docs); only counts are public.
+ */
+export interface GameState {
+  status: GameStatus;
+  /** Player uids in seat order. */
+  playerOrder: string[];
+  starterIndex: number;
+  /** Index into `playerOrder` whose turn it is. */
+  turnIndex: number;
+  turnPhase: TurnPhase;
+  indicator: TileFace;
+  okey: OkeyMatch | null;
+  /** Tiles left in the draw pile (count is public; contents are not). */
+  drawCount: number;
+  /** Discards per seat index ('0'..'3'). A map, since Firestore forbids nested arrays. */
+  discards: Record<string, Tile[]>;
+  /** Tile count per player uid (public, so opponents' counts are visible). */
+  handCounts: Record<string, number>;
+}
+
+/** A player's private hand (Firestore `games/{lobbyId}/hands/{uid}`). */
+export interface PlayerHand {
+  tiles: Tile[];
+}
+
+export type MoveType = 'deal' | 'draw' | 'discard' | 'take';
+
+/** An entry in the move log (Firestore `games/{lobbyId}/moves`). */
+export interface GameMove {
+  type: MoveType;
+  /** uid of the player who made the move. */
+  by: string;
+  /** The tile involved (for draw/discard). */
+  tile?: TileFace;
+}

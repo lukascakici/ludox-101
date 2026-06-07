@@ -3,10 +3,13 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   joinLobby,
   leaveLobby,
-  startLobby,
   subscribeToLobby,
   updateLobby,
 } from '@/services/firebase/lobbyService';
+import {
+  startGame,
+  startSoloTestGame,
+} from '@/services/firebase/gameService';
 import {
   formatMatchSummary,
   gameModeLabels,
@@ -160,15 +163,27 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
   }
 
   async function handleStart() {
+    if (!currentUid) return;
     setStartError(null);
     setStarting(true);
     try {
-      await startLobby(lobby.id);
+      await startGame(lobby, currentUid);
     } catch (err) {
-      console.error('startLobby failed:', err);
+      console.error('startGame failed:', err);
       setStartError('Oyun başlatılamadı.');
     } finally {
       setStarting(false);
+    }
+  }
+
+  async function handleSoloTest() {
+    if (!currentUid) return;
+    setStartError(null);
+    try {
+      await startSoloTestGame(lobby, currentUid);
+    } catch (err) {
+      console.error('startSoloTestGame failed:', err);
+      setStartError('Test oyunu başlatılamadı.');
     }
   }
 
@@ -232,6 +247,15 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
                   className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
                 >
                   {starting ? 'Başlatılıyor…' : 'Oyunu Başlat'}
+                </button>
+              )}
+              {import.meta.env.DEV && isHost && !full && waiting && (
+                <button
+                  type="button"
+                  onClick={handleSoloTest}
+                  className="w-full rounded-md border border-amber-400 px-4 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-felt-800"
+                >
+                  Botlarla başlat (test)
                 </button>
               )}
               {startError && (

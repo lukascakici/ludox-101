@@ -1,9 +1,8 @@
-export type TileColor = 'red' | 'black' | 'blue' | 'yellow';
+import type { TileColor, TileFace } from '@/game/tiles';
 
-/** A game tile: a numbered color tile, or a false joker (sahte okey). */
-export type GameTile =
-  | { kind: 'number'; color: TileColor; value: number }
-  | { kind: 'false-joker' };
+export type { TileColor };
+/** The visible face of a tile (sourced from the game domain model). */
+export type GameTile = TileFace;
 
 const numberColorClasses: Record<TileColor, string> = {
   red: 'text-red-600',

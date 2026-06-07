@@ -175,17 +175,6 @@ export async function updateLobby(
 }
 
 /**
- * Starts the match: moves the lobby from Waiting to InProgress. Callers must
- * ensure the lobby is full (4 players) and that the requester is the host;
- * Firestore rules additionally restrict updates to the host.
- */
-export async function startLobby(id: string): Promise<void> {
-  await updateDoc(doc(db, LOBBIES_COLLECTION, id), {
-    status: LobbyStatus.InProgress,
-  });
-}
-
-/**
  * Seats a player in a lobby. Runs in a transaction so capacity is enforced
  * atomically (no over-seating under concurrent joins). Idempotent: joining a
  * lobby you're already in is a no-op. Verifies the password for private lobbies.
