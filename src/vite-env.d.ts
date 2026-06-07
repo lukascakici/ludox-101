@@ -11,6 +11,8 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_STORAGE_BUCKET: string;
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string;
   readonly VITE_FIREBASE_APP_ID: string;
+  /** Google Analytics measurement id (optional). */
+  readonly VITE_FIREBASE_MEASUREMENT_ID: string;
   /** Realtime Database URL — used for in-game state in a later phase. */
   readonly VITE_FIREBASE_DATABASE_URL: string;
 }
