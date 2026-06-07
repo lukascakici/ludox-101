@@ -12,6 +12,8 @@ export interface Flight {
   faceDown?: boolean;
   from: Point;
   to: Point;
+  /** Delay before the slide starts (ms) — used to stagger multiple tiles. */
+  delay?: number;
 }
 
 const DURATION_MS = 380;
@@ -30,14 +32,19 @@ export function FlyingTile({
   const [pos, setPos] = useState<Point>(flight.from);
 
   useEffect(() => {
-    // Paint at `from`, then on the next frame transition to `to`.
-    const raf = requestAnimationFrame(() =>
-      requestAnimationFrame(() => setPos(flight.to)),
-    );
-    const timer = setTimeout(onDone, DURATION_MS + 60);
+    const delay = flight.delay ?? 0;
+    let raf = 0;
+    // Wait out the stagger delay, then paint at `from` and slide to `to`.
+    const start = setTimeout(() => {
+      raf = requestAnimationFrame(() =>
+        requestAnimationFrame(() => setPos(flight.to)),
+      );
+    }, delay);
+    const done = setTimeout(onDone, delay + DURATION_MS + 60);
     return () => {
+      clearTimeout(start);
       cancelAnimationFrame(raf);
-      clearTimeout(timer);
+      clearTimeout(done);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -141,6 +141,19 @@ export function GameTable({
     drawPileCount: number;
   } | null>(null);
 
+  const centerOf = (selector: string): Point | null => {
+    const element = document.querySelector(selector);
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  };
+  const seatSelector = (uid: string) =>
+    uid === currentUid ? '[data-rack-zone]' : `[data-seat="${uid}"]`;
+  const addFlight = (flight: Omit<Flight, 'key'>) => {
+    const key = `flight-${flightKeyRef.current++}`;
+    setFlights((current) => [...current, { key, ...flight }]);
+  };
+
   const changeSig = JSON.stringify({
     hc: handCounts,
     dl: Object.keys(discards).map((key) => discards[key].length),
@@ -151,19 +164,6 @@ export function GameTable({
     const prev = prevRef.current;
     prevRef.current = { handCounts, discards, drawPileCount };
     if (!prev) return;
-
-    const centerOf = (selector: string): Point | null => {
-      const element = document.querySelector(selector);
-      if (!element) return null;
-      const rect = element.getBoundingClientRect();
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    };
-    const seatSelector = (uid: string) =>
-      uid === currentUid ? '[data-rack-zone]' : `[data-seat="${uid}"]`;
-    const addFlight = (flight: Omit<Flight, 'key'>) => {
-      const key = `flight-${flightKeyRef.current++}`;
-      setFlights((current) => [...current, { key, ...flight }]);
-    };
 
     for (const seatKey of Object.keys(discards)) {
       const seatIndex = Number(seatKey);
@@ -187,6 +187,7 @@ export function GameTable({
         const face = prev.discards[seatKey]?.[prevLen - 1]?.face;
         const from = centerOf(`[data-pile="${seatIndex}"]`);
         const to = taker ? centerOf(seatSelector(taker)) : null;
+        // Self take/draw is not animated — the tile just stays where you drop it.
         if (taker && taker !== currentUid && from && to && face) {
           addFlight({ face, from, to });
         }
@@ -206,6 +207,40 @@ export function GameTable({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [changeSig]);
+
+  // Your own discard: slide the tile from where you dropped it to your pile.
+  function handleRackDiscard(tileId: string, fromX: number, fromY: number) {
+    const tile = hand.find((t) => t.id === tileId);
+    const to = centerOf(`[data-pile="${myIndex % count}"]`);
+    if (tile && to) {
+      addFlight({ face: tile.face, from: { x: fromX, y: fromY }, to });
+    }
+    onDiscard(tileId);
+  }
+
+  // Laying melds (anyone): slide the meld's tiles to the open area, staggered.
+  const meldsInitRef = useRef(false);
+  const prevMeldIdsRef = useRef<Set<string>>(new Set());
+  const meldIdsSig = melds.map((m) => m.id).join(',');
+  useEffect(() => {
+    const prevIds = prevMeldIdsRef.current;
+    const newMelds = melds.filter((m) => !prevIds.has(m.id));
+    prevMeldIdsRef.current = new Set(melds.map((m) => m.id));
+    if (!meldsInitRef.current) {
+      meldsInitRef.current = true;
+      return;
+    }
+    for (const meld of newMelds) {
+      const from = centerOf(seatSelector(meld.owner));
+      const to = centerOf(`[data-meld-id="${meld.id}"]`);
+      if (from && to) {
+        meld.tiles.forEach((tile, index) => {
+          addFlight({ face: tile.face, from, to, delay: index * 90 });
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meldIdsSig]);
 
   return (
     <div className="table-felt flex h-dvh flex-col text-stone-100">
@@ -261,21 +296,27 @@ export function GameTable({
         <div
           data-discard-target
           data-pile={(myIndex + 0) % count}
-          className={`absolute bottom-2 right-2 rounded-md transition-shadow ${
+          className={`absolute left-[80%] top-[80%] -translate-x-1/2 -translate-y-1/2 rounded-md transition-shadow ${
             canDiscard ? 'ring-2 ring-amber-400' : ''
           }`}
         >
           <DiscardPile tiles={pileAt(0)} />
         </div>
-        <div data-pile={(myIndex + 1) % count} className="absolute right-2 top-2">
+        <div
+          data-pile={(myIndex + 1) % count}
+          className="absolute left-[80%] top-[20%] -translate-x-1/2 -translate-y-1/2"
+        >
           <DiscardPile tiles={pileAt(1)} />
         </div>
-        <div data-pile={(myIndex + 2) % count} className="absolute left-2 top-2">
+        <div
+          data-pile={(myIndex + 2) % count}
+          className="absolute left-[20%] top-[20%] -translate-x-1/2 -translate-y-1/2"
+        >
           <DiscardPile tiles={pileAt(2)} />
         </div>
         <div
           data-pile={(myIndex + 3) % count}
-          className="absolute bottom-2 left-2"
+          className="absolute left-[20%] top-[80%] -translate-x-1/2 -translate-y-1/2"
         >
           <DiscardPile
             tiles={leftPile}
@@ -339,7 +380,7 @@ export function GameTable({
           {isMyTurn
             ? canDiscard
               ? 'Sıra sende — bir taşı sağ köşeye sürükleyip at'
-              : 'Sıra sende — desteden çek ya da soldakini al'
+              : 'Sıra sende'
             : `Sıra: ${nameOf(currentTurnUid)}`}
         </span>
         <div className="flex items-end justify-center gap-3">
@@ -348,7 +389,7 @@ export function GameTable({
             tiles={hand}
             okey={okey}
             canDiscard={canDiscard}
-            onDiscard={onDiscard}
+            onDiscard={handleRackDiscard}
             canProcess={canProcess}
             onProcess={onProcess}
             onArrange={setCurrentGroups}

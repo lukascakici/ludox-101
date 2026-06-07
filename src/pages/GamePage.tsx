@@ -105,6 +105,13 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Auto-dismiss the open/process error toast.
+  useEffect(() => {
+    if (!openError) return;
+    const timer = setTimeout(() => setOpenError(null), 3000);
+    return () => clearTimeout(timer);
+  }, [openError]);
+
   // When the hand ends, the host returns the lobby to waiting so it's reusable
   // and everyone can leave cleanly.
   const resetDoneRef = useRef(false);
@@ -276,7 +283,7 @@ export function GamePage() {
       <RotateDevicePrompt />
 
       {openError && (
-        <div className="fixed bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
+        <div className="fixed left-1/2 top-12 z-40 -translate-x-1/2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
           {openError}
         </div>
       )}

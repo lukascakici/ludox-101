@@ -406,12 +406,12 @@ export async function drawFromDeck(lobbyId: string, uid: string): Promise<void> 
 
     tx.update(deckRef, { tiles: remaining });
     tx.update(handRef, { tiles: newHand });
-    // When the last tile is drawn, the hand ends automatically.
+    // The player who draws the last tile still gets to play; the hand ends when
+    // they discard (handled in discardTile).
     tx.update(gameRef, {
       drawCount: remaining.length,
       [`handCounts.${uid}`]: newHand.length,
       turnPhase: 'discard',
-      ...(remaining.length === 0 ? { status: 'finished' } : {}),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'draw',
@@ -515,16 +515,19 @@ export async function discardTile(
     const nextTurn = (game.turnIndex + 1) % game.playerOrder.length;
 
     // Finishing (el bitirme): discarding the last tile after having opened wins.
-    const finished =
-      newHand.length === 0 && (game.opened ?? {})[uid] === true;
+    const won = newHand.length === 0 && (game.opened ?? {})[uid] === true;
+    // Otherwise, if the deck is exhausted, this discard ends the hand (no winner).
+    const deckExhausted = game.drawCount === 0;
 
     tx.update(handRef, { tiles: newHand });
     tx.update(gameRef, {
       [`discards.${seat}`]: [...pile, tile],
       [`handCounts.${uid}`]: newHand.length,
-      ...(finished
+      ...(won
         ? { status: 'finished', winner: uid }
-        : { turnIndex: nextTurn, turnPhase: 'draw' }),
+        : deckExhausted
+          ? { status: 'finished' }
+          : { turnIndex: nextTurn, turnPhase: 'draw' }),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'discard',

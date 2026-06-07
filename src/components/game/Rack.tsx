@@ -23,8 +23,8 @@ interface RackProps {
   okey: OkeyMatch | null;
   /** Whether dropping a tile on the discard zone discards it. */
   canDiscard?: boolean;
-  /** Called with the tile id when a tile is dragged to the discard zone. */
-  onDiscard?: (tileId: string) => void;
+  /** Called when a tile is dragged to the discard pile (with the drop point). */
+  onDiscard?: (tileId: string, fromX: number, fromY: number) => void;
   /** Slots per row. Kept larger than a typical hand so there's room to arrange. */
   slotsPerRow?: number;
   /** localStorage key to persist the rack arrangement across refreshes. */
@@ -271,7 +271,7 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
           canDiscardRef.current &&
           onDiscardRef.current
         ) {
-          onDiscardRef.current(active.tile.id);
+          onDiscardRef.current(active.tile.id, event.clientX, event.clientY);
           setSlots((prev) =>
             prev.map((slot, index) =>
               index === active.fromIndex ? null : slot,
@@ -318,10 +318,13 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
   return (
     <div className="select-none">
       <div data-rack-zone className="overflow-x-auto">
-        <div className="w-fit rounded-xl bg-amber-900 p-2 shadow-lg ring-1 ring-amber-950/60">
+        <div className="w-fit rounded-lg bg-amber-900 p-2 shadow-xl ring-1 ring-black/40">
           <div className="space-y-1.5">
             {rows.map((row, rowIndex) => (
-              <div key={rowIndex} className="flex gap-1">
+              <div
+                key={rowIndex}
+                className="flex gap-0.5 rounded-md bg-amber-800/60 px-1 pb-1.5 pt-1 shadow-inner"
+              >
                 {row.map((tile, columnIndex) => {
                   const slotIndex = rowIndex * slotsPerRow + columnIndex;
                   const isSource = drag?.fromIndex === slotIndex;
@@ -331,7 +334,7 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
                       key={slotIndex}
                       data-slot-index={slotIndex}
                       onPointerDown={(e) => handlePointerDown(e, slotIndex)}
-                      className={`rounded-md ${filled ? 'cursor-grab touch-none' : ''}`}
+                      className={filled ? 'cursor-grab touch-none' : ''}
                     >
                       {filled ? (
                         <Tile
@@ -339,7 +342,7 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
                           asOkey={isOkeyTile(tile.face, okey)}
                         />
                       ) : (
-                        <div className="h-12 w-9 rounded-md bg-amber-950/30" />
+                        <div className="h-12 w-9" />
                       )}
                     </div>
                   );
