@@ -25,6 +25,10 @@ interface RackProps {
   incomingSlot?: number | null;
   /** Called once the incoming tile has been placed. */
   onIncomingPlaced?: () => void;
+  /** Whether the player may open (lay melds) now. */
+  canOpen?: boolean;
+  /** Called with the rack's contiguous tile groups (per row) when opening. */
+  onOpen?: (groups: TileModel[][]) => void;
 }
 
 interface DragState {
@@ -91,6 +95,8 @@ export function Rack({
   storageKey,
   incomingSlot = null,
   onIncomingPlaced,
+  canOpen = false,
+  onOpen,
 }: RackProps) {
   const totalSlots = slotsPerRow * 2;
   const [slots, setSlots] = useState<(TileModel | null)[]>(() =>
@@ -223,11 +229,31 @@ export function Rack({
     setDrag({ fromIndex: index, tile, x: event.clientX, y: event.clientY });
   }
 
+  // Contiguous tile groups per row (separated by empty slots) — candidate melds.
+  function getGroups(): TileModel[][] {
+    const groups: TileModel[][] = [];
+    for (let row = 0; row < 2; row++) {
+      let current: TileModel[] = [];
+      for (let col = 0; col < slotsPerRow; col++) {
+        const tile = slots[row * slotsPerRow + col];
+        if (tile) {
+          current.push(tile);
+        } else if (current.length) {
+          groups.push(current);
+          current = [];
+        }
+      }
+      if (current.length) groups.push(current);
+    }
+    return groups;
+  }
+
   const rows = [slots.slice(0, slotsPerRow), slots.slice(slotsPerRow)];
 
   return (
-    <div data-rack-zone className="w-full select-none overflow-x-auto">
-      <div className="mx-auto w-fit rounded-xl bg-amber-900 p-2 shadow-lg ring-1 ring-amber-950/60">
+    <div className="w-full select-none">
+      <div data-rack-zone className="w-full overflow-x-auto">
+        <div className="mx-auto w-fit rounded-xl bg-amber-900 p-2 shadow-lg ring-1 ring-amber-950/60">
         <div className="space-y-1.5">
           {rows.map((row, rowIndex) => (
             <div key={rowIndex} className="flex gap-1">
@@ -253,7 +279,20 @@ export function Rack({
             </div>
           ))}
         </div>
+        </div>
       </div>
+
+      {canOpen && onOpen && (
+        <div className="mt-2 flex justify-center">
+          <button
+            type="button"
+            onClick={() => onOpen(getGroups())}
+            className="rounded-md bg-amber-500 px-5 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400"
+          >
+            Aç
+          </button>
+        </div>
+      )}
 
       {drag && (
         <div

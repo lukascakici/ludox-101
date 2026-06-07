@@ -11,8 +11,9 @@ import {
 import { db } from './config';
 import { deal } from '@/game/deal';
 import { computeOkey } from '@/game/okey';
+import { classifyMeld, OPENING_MIN } from '@/game/melds';
 import { LobbyStatus, type Lobby, type LobbyPlayer } from '@/types/lobby';
-import type { GameState, PlayerHand } from '@/types/game';
+import type { GameState, PlayerHand, TableMeld } from '@/types/game';
 import type { Tile } from '@/game/tiles';
 
 const GAMES_COLLECTION = 'games';
@@ -51,6 +52,9 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     drawCount: result.drawPile.length,
     discards,
     handCounts,
+    opened: {},
+    melds: [],
+    doubling: lobby.settings.gameRules.doubling,
   };
 
   const batch = writeBatch(db);
@@ -125,6 +129,9 @@ export async function startSoloTestGame(
     drawCount: result.drawPile.length,
     discards,
     handCounts,
+    opened: {},
+    melds: [],
+    doubling: lobby.settings.gameRules.doubling,
   };
 
   const batch = writeBatch(db);
@@ -183,6 +190,77 @@ export async function playPendingBotTurns(lobbyId: string): Promise<void> {
   }
 }
 
+/**
+ * Opens (lays) melds on the table. Validates each group as a meld and requires
+ * the total to reach the opening threshold (≥101). Removes the tiles from the
+ * hand, keeping at least one to discard. The turn is NOT advanced — the player
+ * still discards afterwards.
+ */
+export async function openMelds(
+  lobbyId: string,
+  uid: string,
+  groups: Tile[][],
+): Promise<void> {
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const handRef = doc(gameRef, 'hands', uid);
+
+  await runTransaction(db, async (tx) => {
+    const [gameSnap, handSnap] = await Promise.all([
+      tx.get(gameRef),
+      tx.get(handRef),
+    ]);
+    if (!gameSnap.exists() || !handSnap.exists()) {
+      throw new GameActionError('missing');
+    }
+
+    const game = gameSnap.data() as GameState;
+    if (game.playerOrder[game.turnIndex] !== uid) {
+      throw new GameActionError('not-your-turn');
+    }
+    if (game.turnPhase !== 'discard') throw new GameActionError('wrong-phase');
+    if (game.opened[uid]) throw new GameActionError('already-opened');
+
+    let total = 0;
+    const tableMelds: TableMeld[] = [];
+    groups.forEach((group, index) => {
+      const info = classifyMeld(
+        group.map((tile) => tile.face),
+        game.okey,
+      );
+      if (!info) throw new GameActionError('invalid-meld');
+      total += info.value;
+      tableMelds.push({
+        id: `${uid}-${game.melds.length + index}`,
+        owner: uid,
+        kind: info.kind,
+        tiles: group,
+      });
+    });
+    if (total < OPENING_MIN) throw new GameActionError('below-threshold');
+
+    const openedIds = new Set(groups.flat().map((tile) => tile.id));
+    const handTiles = (handSnap.data() as PlayerHand).tiles;
+    const remaining = handTiles.filter((tile) => !openedIds.has(tile.id));
+    if (handTiles.length - remaining.length !== openedIds.size) {
+      throw new GameActionError('tile-not-in-hand');
+    }
+    if (remaining.length < 1) throw new GameActionError('must-keep-tile');
+
+    tx.update(handRef, { tiles: remaining });
+    tx.update(gameRef, {
+      melds: [...game.melds, ...tableMelds],
+      [`opened.${uid}`]: true,
+      [`handCounts.${uid}`]: remaining.length,
+    });
+    tx.set(doc(collection(gameRef, 'moves')), {
+      type: 'open',
+      by: uid,
+      at: serverTimestamp(),
+      total,
+    });
+  });
+}
+
 /** Subscribes to the public game state. Calls back with `null` if no game yet. */
 export function subscribeToGame(
   lobbyId: string,
@@ -207,6 +285,10 @@ export class GameActionError extends Error {
       | 'deck-empty'
       | 'empty-discard'
       | 'tile-not-in-hand'
+      | 'already-opened'
+      | 'invalid-meld'
+      | 'below-threshold'
+      | 'must-keep-tile'
       | 'missing',
   ) {
     super(code);

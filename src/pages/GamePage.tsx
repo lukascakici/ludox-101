@@ -7,11 +7,13 @@ import {
 import {
   discardTile,
   drawFromDeck,
+  openMelds,
   playPendingBotTurns,
   subscribeToGame,
   subscribeToHand,
   takeFromDiscard,
 } from '@/services/firebase/gameService';
+import { classifyMeld, OPENING_MIN } from '@/game/melds';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
 import { RotateDevicePrompt } from '@/components/game/RotateDevicePrompt';
@@ -39,6 +41,7 @@ export function GamePage() {
   const [game, setGame] = useState<GameState | null>(null);
   const [gameLoaded, setGameLoaded] = useState(false);
   const [hand, setHand] = useState<Tile[] | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -153,6 +156,12 @@ export function GamePage() {
   const canDraw = isDrawPhase && game.drawCount > 0;
   const canTake = isDrawPhase;
   const canDiscard = isMyTurn && game.turnPhase === 'discard';
+  const tableMelds = game.melds ?? [];
+  const canOpen =
+    isMyTurn &&
+    game.turnPhase === 'discard' &&
+    uid != null &&
+    !(game.opened ?? {})[uid];
 
   async function handleDraw() {
     if (!id || !uid) return;
@@ -181,6 +190,50 @@ export function GamePage() {
     }
   }
 
+  async function handleOpen(groups: Tile[][]) {
+    if (!id || !uid || !game) return;
+    setOpenError(null);
+
+    // Only contiguous groups that are VALID melds count; everything else stays
+    // in hand. You don't need to meld all your tiles — just reach 101 with melds.
+    const validMelds = groups
+      .map((tiles) => ({
+        tiles,
+        info: classifyMeld(
+          tiles.map((tile) => tile.face),
+          game.okey,
+        ),
+      }))
+      .filter((entry) => entry.info !== null);
+
+    if (validMelds.length === 0) {
+      setOpenError('Geçerli bir per oluştur (aralarına boşluk bırak).');
+      return;
+    }
+
+    const total = validMelds.reduce(
+      (sum, entry) => sum + (entry.info?.value ?? 0),
+      0,
+    );
+    if (total < OPENING_MIN) {
+      setOpenError(
+        `Geçerli perlerin toplamı ${total} — açmak için en az ${OPENING_MIN} gerekli.`,
+      );
+      return;
+    }
+
+    try {
+      await openMelds(
+        id,
+        uid,
+        validMelds.map((entry) => entry.tiles),
+      );
+    } catch (err) {
+      console.error('openMelds failed:', err);
+      setOpenError('Açma başarısız oldu.');
+    }
+  }
+
   return (
     <>
       <GameTable
@@ -196,11 +249,20 @@ export function GamePage() {
         canDraw={canDraw}
         canTake={canTake}
         canDiscard={canDiscard}
+        canOpen={canOpen}
+        melds={tableMelds}
         onDraw={handleDraw}
         onTakeDiscard={handleTakeDiscard}
         onDiscard={handleDiscard}
+        onOpen={handleOpen}
       />
       <RotateDevicePrompt />
+
+      {openError && (
+        <div className="fixed bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
+          {openError}
+        </div>
+      )}
 
       {game.status === 'finished' && (
         <div className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-black/60 text-stone-100">

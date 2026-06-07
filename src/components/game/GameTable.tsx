@@ -7,10 +7,11 @@ import { Rack } from './Rack';
 import { Tile } from './Tile';
 import { FlyingTile, type Flight, type Point } from './FlyingTile';
 import { usePointerDrag, isOverSelector } from './usePointerDrag';
-import { computeOkey } from '@/game/okey';
+import { computeOkey, isOkeyTile } from '@/game/okey';
 import type { GameTile } from './Tile';
 import type { Tile as TileModel } from '@/game/tiles';
 import type { Lobby } from '@/types/lobby';
+import type { TableMeld } from '@/types/game';
 
 interface GameTableProps {
   lobby: Lobby;
@@ -28,9 +29,14 @@ interface GameTableProps {
   /** Whether the player may take the left neighbour's discard now. */
   canTake: boolean;
   canDiscard: boolean;
+  /** Whether the player may open (lay melds) now. */
+  canOpen: boolean;
+  /** Melds laid on the table. */
+  melds: TableMeld[];
   onDraw: () => void;
   onDiscard: (tileId: string) => void;
   onTakeDiscard: () => void;
+  onOpen: (groups: TileModel[][]) => void;
 }
 
 const RACK_ZONE = '[data-rack-zone]';
@@ -54,9 +60,12 @@ export function GameTable({
   canDraw,
   canTake,
   canDiscard,
+  canOpen,
+  melds,
   onDraw,
   onDiscard,
   onTakeDiscard,
+  onOpen,
 }: GameTableProps) {
   const count = playerOrder.length || 1;
   const foundIndex = currentUid ? playerOrder.indexOf(currentUid) : -1;
@@ -264,9 +273,27 @@ export function GameTable({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-32">
           <div
             data-open-area
-            className="flex h-40 max-w-md flex-1 items-center justify-center rounded-xl border border-stone-100/15 bg-black/10 text-xs text-stone-400"
+            className="h-40 max-w-md flex-1 overflow-auto rounded-xl border border-stone-100/15 bg-black/10 p-2"
           >
-            Açma alanı
+            {melds.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-xs text-stone-400">
+                Açma alanı
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                {melds.map((meld) => (
+                  <div key={meld.id} className="flex gap-0.5">
+                    {meld.tiles.map((tile, index) => (
+                      <Tile
+                        key={index}
+                        tile={tile.face}
+                        asOkey={isOkeyTile(tile.face, okey)}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="pointer-events-auto">
             <BoardCenter
@@ -297,6 +324,8 @@ export function GameTable({
           okey={okey}
           canDiscard={canDiscard}
           onDiscard={onDiscard}
+          canOpen={canOpen}
+          onOpen={onOpen}
           incomingSlot={pendingSlot}
           onIncomingPlaced={() => setPendingSlot(null)}
           {...(currentUid
