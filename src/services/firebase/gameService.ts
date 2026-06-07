@@ -218,7 +218,9 @@ export async function openMelds(
       throw new GameActionError('not-your-turn');
     }
     if (game.turnPhase !== 'discard') throw new GameActionError('wrong-phase');
-    if (game.opened[uid]) throw new GameActionError('already-opened');
+
+    const alreadyOpened = (game.opened ?? {})[uid] === true;
+    const existingMelds = game.melds ?? [];
 
     let total = 0;
     const tableMelds: TableMeld[] = [];
@@ -230,13 +232,16 @@ export async function openMelds(
       if (!info) throw new GameActionError('invalid-meld');
       total += info.value;
       tableMelds.push({
-        id: `${uid}-${game.melds.length + index}`,
+        id: `${uid}-${existingMelds.length + index}`,
         owner: uid,
         kind: info.kind,
         tiles: group,
       });
     });
-    if (total < OPENING_MIN) throw new GameActionError('below-threshold');
+    // The 101 threshold only applies to the FIRST opening.
+    if (!alreadyOpened && total < OPENING_MIN) {
+      throw new GameActionError('below-threshold');
+    }
 
     const openedIds = new Set(groups.flat().map((tile) => tile.id));
     const handTiles = (handSnap.data() as PlayerHand).tiles;
@@ -248,7 +253,7 @@ export async function openMelds(
 
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
-      melds: [...game.melds, ...tableMelds],
+      melds: [...existingMelds, ...tableMelds],
       [`opened.${uid}`]: true,
       [`handCounts.${uid}`]: remaining.length,
     });
@@ -257,6 +262,74 @@ export async function openMelds(
       by: uid,
       at: serverTimestamp(),
       total,
+    });
+  });
+}
+
+/**
+ * "İşleme": adds a tile from the player's hand to an existing meld on the table
+ * (any owner). The player must have opened, and the resulting meld must still be
+ * valid. Keeps at least one tile to discard.
+ */
+export async function processTile(
+  lobbyId: string,
+  uid: string,
+  meldId: string,
+  tileId: string,
+): Promise<void> {
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const handRef = doc(gameRef, 'hands', uid);
+
+  await runTransaction(db, async (tx) => {
+    const [gameSnap, handSnap] = await Promise.all([
+      tx.get(gameRef),
+      tx.get(handRef),
+    ]);
+    if (!gameSnap.exists() || !handSnap.exists()) {
+      throw new GameActionError('missing');
+    }
+
+    const game = gameSnap.data() as GameState;
+    if (game.playerOrder[game.turnIndex] !== uid) {
+      throw new GameActionError('not-your-turn');
+    }
+    if (game.turnPhase !== 'discard') throw new GameActionError('wrong-phase');
+    if (!(game.opened ?? {})[uid]) throw new GameActionError('not-opened');
+
+    const melds = game.melds ?? [];
+    const meldIndex = melds.findIndex((meld) => meld.id === meldId);
+    if (meldIndex < 0) throw new GameActionError('meld-not-found');
+
+    const handTiles = (handSnap.data() as PlayerHand).tiles;
+    const tile = handTiles.find((t) => t.id === tileId);
+    if (!tile) throw new GameActionError('tile-not-in-hand');
+
+    const target = melds[meldIndex];
+    const newTiles = [...target.tiles, tile];
+    const info = classifyMeld(
+      newTiles.map((t) => t.face),
+      game.okey,
+    );
+    if (!info) throw new GameActionError('invalid-meld');
+
+    const remaining = handTiles.filter((t) => t.id !== tileId);
+    if (remaining.length < 1) throw new GameActionError('must-keep-tile');
+
+    const newMelds = melds.map((meld, index) =>
+      index === meldIndex ? { ...meld, tiles: newTiles, kind: info.kind } : meld,
+    );
+
+    tx.update(handRef, { tiles: remaining });
+    tx.update(gameRef, {
+      melds: newMelds,
+      [`handCounts.${uid}`]: remaining.length,
+    });
+    tx.set(doc(collection(gameRef, 'moves')), {
+      type: 'process',
+      by: uid,
+      at: serverTimestamp(),
+      meldId,
+      tile: tile.face,
     });
   });
 }
@@ -289,6 +362,8 @@ export class GameActionError extends Error {
       | 'invalid-meld'
       | 'below-threshold'
       | 'must-keep-tile'
+      | 'not-opened'
+      | 'meld-not-found'
       | 'missing',
   ) {
     super(code);
@@ -439,12 +514,17 @@ export async function discardTile(
     const pile = game.discards[seat] ?? [];
     const nextTurn = (game.turnIndex + 1) % game.playerOrder.length;
 
+    // Finishing (el bitirme): discarding the last tile after having opened wins.
+    const finished =
+      newHand.length === 0 && (game.opened ?? {})[uid] === true;
+
     tx.update(handRef, { tiles: newHand });
     tx.update(gameRef, {
       [`discards.${seat}`]: [...pile, tile],
       [`handCounts.${uid}`]: newHand.length,
-      turnIndex: nextTurn,
-      turnPhase: 'draw',
+      ...(finished
+        ? { status: 'finished', winner: uid }
+        : { turnIndex: nextTurn, turnPhase: 'draw' }),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'discard',

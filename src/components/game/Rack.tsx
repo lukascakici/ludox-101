@@ -1,12 +1,20 @@
 import {
+  forwardRef,
   useEffect,
+  useImperativeHandle,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Tile } from './Tile';
 import { isOkeyTile, type OkeyMatch } from '@/game/okey';
+import type { Arrangement } from '@/game/arrange';
 import type { Tile as TileModel } from '@/game/tiles';
+
+export interface RackHandle {
+  /** Lays the given arrangement (melds/pairs + loose) onto the rack. */
+  setArrangement: (arrangement: Arrangement) => void;
+}
 
 interface RackProps {
   /** The player's hand from the server (source of truth). */
@@ -25,10 +33,12 @@ interface RackProps {
   incomingSlot?: number | null;
   /** Called once the incoming tile has been placed. */
   onIncomingPlaced?: () => void;
-  /** Whether the player may open (lay melds) now. */
-  canOpen?: boolean;
-  /** Called with the rack's contiguous tile groups (per row) when opening. */
-  onOpen?: (groups: TileModel[][]) => void;
+  /** Whether dragging a tile onto a table meld processes (işler) it. */
+  canProcess?: boolean;
+  /** Called with (meldId, tileId) when a tile is dropped on a table meld. */
+  onProcess?: (meldId: string, tileId: string) => void;
+  /** Reports the rack's contiguous groups (per row) whenever they change. */
+  onArrange?: (groups: TileModel[][]) => void;
 }
 
 interface DragState {
@@ -36,6 +46,28 @@ interface DragState {
   tile: TileModel;
   x: number;
   y: number;
+}
+
+/** Contiguous tile groups per row (separated by empty slots). */
+function groupsFromSlots(
+  slots: (TileModel | null)[],
+  slotsPerRow: number,
+): TileModel[][] {
+  const groups: TileModel[][] = [];
+  for (let row = 0; row < 2; row++) {
+    let current: TileModel[] = [];
+    for (let col = 0; col < slotsPerRow; col++) {
+      const tile = slots[row * slotsPerRow + col];
+      if (tile) {
+        current.push(tile);
+      } else if (current.length) {
+        groups.push(current);
+        current = [];
+      }
+    }
+    if (current.length) groups.push(current);
+  }
+  return groups;
 }
 
 /**
@@ -81,45 +113,34 @@ function buildSlots(
 }
 
 /**
- * The player's rack (ıstaka). Tiles can be dragged between slots to rearrange
- * (local only) or dragged to the discard zone to throw them. The slot layout
- * reconciles with the server hand: drawn tiles appear in the first free slot and
- * discarded tiles leave, while the rest keep their place.
+ * The player's rack (ıstaka). Tiles can be dragged between slots, to the discard
+ * pile, or onto a table meld. The auto-arrange buttons drive it via `ref`.
  */
-export function Rack({
-  tiles,
-  okey,
-  canDiscard = false,
-  onDiscard,
-  slotsPerRow = 16,
-  storageKey,
-  incomingSlot = null,
-  onIncomingPlaced,
-  canOpen = false,
-  onOpen,
-}: RackProps) {
+export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
+  {
+    tiles,
+    okey,
+    canDiscard = false,
+    onDiscard,
+    slotsPerRow = 16,
+    storageKey,
+    incomingSlot = null,
+    onIncomingPlaced,
+    canProcess = false,
+    onProcess,
+    onArrange,
+  },
+  ref,
+) {
   const totalSlots = slotsPerRow * 2;
   const [slots, setSlots] = useState<(TileModel | null)[]>(() =>
     buildSlots(tiles, totalSlots, storageKey),
   );
-
-  // Persist the arrangement so it survives a page refresh.
-  useEffect(() => {
-    if (!storageKey) return;
-    try {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify(slots.map((slot) => slot?.id ?? null)),
-      );
-    } catch {
-      // Ignore storage write failures.
-    }
-  }, [slots, storageKey]);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
 
-  // Keep the latest props available to the (debounced) reconcile effect.
+  // Keep the latest props available to effects/handlers.
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
   const canDiscardRef = useRef(canDiscard);
@@ -130,10 +151,57 @@ export function Rack({
   incomingSlotRef.current = incomingSlot;
   const onIncomingPlacedRef = useRef(onIncomingPlaced);
   onIncomingPlacedRef.current = onIncomingPlaced;
+  const canProcessRef = useRef(canProcess);
+  canProcessRef.current = canProcess;
+  const onProcessRef = useRef(onProcess);
+  onProcessRef.current = onProcess;
+  const onArrangeRef = useRef(onArrange);
+  onArrangeRef.current = onArrange;
 
-  // Reconcile local slots with the server hand whenever the tile set changes:
-  // keep placed tiles, drop missing ones, and add new ones to free slots. A
-  // newly drawn/taken tile goes to the slot it was dropped on, if free.
+  // Persist the arrangement and report groups whenever the slots change.
+  useEffect(() => {
+    if (storageKey) {
+      try {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify(slots.map((slot) => slot?.id ?? null)),
+        );
+      } catch {
+        // Ignore storage write failures.
+      }
+    }
+    onArrangeRef.current?.(groupsFromSlots(slots, slotsPerRow));
+  }, [slots, storageKey, slotsPerRow]);
+
+  // Lay an auto-arranged set of groups (melds/pairs) + loose tiles.
+  useImperativeHandle(
+    ref,
+    () => ({
+      setArrangement(arrangement: Arrangement) {
+        const next: (TileModel | null)[] = Array.from(
+          { length: totalSlots },
+          () => null,
+        );
+        let i = 0;
+        const place = (seq: TileModel[], gapAfter: boolean) => {
+          const col = i % slotsPerRow;
+          if (col !== 0 && col + seq.length > slotsPerRow) {
+            i = (Math.floor(i / slotsPerRow) + 1) * slotsPerRow; // next row
+          }
+          for (const tile of seq) {
+            if (i < totalSlots) next[i++] = tile;
+          }
+          if (gapAfter) i++;
+        };
+        arrangement.groups.forEach((group) => place(group, true));
+        if (arrangement.loose.length) place(arrangement.loose, false);
+        setSlots(next);
+      },
+    }),
+    [slotsPerRow, totalSlots],
+  );
+
+  // Reconcile local slots with the server hand whenever the tile set changes.
   const idsKey = tiles.map((tile) => tile.id).join(',');
   useEffect(() => {
     setSlots((prev) => {
@@ -180,6 +248,22 @@ export function Rack({
       const active = dragRef.current;
       if (active) {
         const element = document.elementFromPoint(event.clientX, event.clientY);
+
+        // Dropped on a table meld -> process (işle) the tile onto it.
+        const meldElement = element?.closest('[data-meld-id]');
+        if (meldElement && canProcessRef.current && onProcessRef.current) {
+          const meldId = (meldElement as HTMLElement).dataset.meldId;
+          if (meldId) {
+            onProcessRef.current(meldId, active.tile.id);
+            setSlots((prev) =>
+              prev.map((slot, index) =>
+                index === active.fromIndex ? null : slot,
+              ),
+            );
+            setDrag(null);
+            return;
+          }
+        }
 
         // Dropped on your own discard pile -> discard the tile.
         if (
@@ -229,70 +313,42 @@ export function Rack({
     setDrag({ fromIndex: index, tile, x: event.clientX, y: event.clientY });
   }
 
-  // Contiguous tile groups per row (separated by empty slots) — candidate melds.
-  function getGroups(): TileModel[][] {
-    const groups: TileModel[][] = [];
-    for (let row = 0; row < 2; row++) {
-      let current: TileModel[] = [];
-      for (let col = 0; col < slotsPerRow; col++) {
-        const tile = slots[row * slotsPerRow + col];
-        if (tile) {
-          current.push(tile);
-        } else if (current.length) {
-          groups.push(current);
-          current = [];
-        }
-      }
-      if (current.length) groups.push(current);
-    }
-    return groups;
-  }
-
   const rows = [slots.slice(0, slotsPerRow), slots.slice(slotsPerRow)];
 
   return (
-    <div className="w-full select-none">
-      <div data-rack-zone className="w-full overflow-x-auto">
-        <div className="mx-auto w-fit rounded-xl bg-amber-900 p-2 shadow-lg ring-1 ring-amber-950/60">
-        <div className="space-y-1.5">
-          {rows.map((row, rowIndex) => (
-            <div key={rowIndex} className="flex gap-1">
-              {row.map((tile, columnIndex) => {
-                const slotIndex = rowIndex * slotsPerRow + columnIndex;
-                const isSource = drag?.fromIndex === slotIndex;
-                const filled = tile && !isSource;
-                return (
-                  <div
-                    key={slotIndex}
-                    data-slot-index={slotIndex}
-                    onPointerDown={(e) => handlePointerDown(e, slotIndex)}
-                    className={`rounded-md ${filled ? 'cursor-grab touch-none' : ''}`}
-                  >
-                    {filled ? (
-                      <Tile tile={tile.face} asOkey={isOkeyTile(tile.face, okey)} />
-                    ) : (
-                      <div className="h-12 w-9 rounded-md bg-amber-950/30" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
+    <div className="select-none">
+      <div data-rack-zone className="overflow-x-auto">
+        <div className="w-fit rounded-xl bg-amber-900 p-2 shadow-lg ring-1 ring-amber-950/60">
+          <div className="space-y-1.5">
+            {rows.map((row, rowIndex) => (
+              <div key={rowIndex} className="flex gap-1">
+                {row.map((tile, columnIndex) => {
+                  const slotIndex = rowIndex * slotsPerRow + columnIndex;
+                  const isSource = drag?.fromIndex === slotIndex;
+                  const filled = tile && !isSource;
+                  return (
+                    <div
+                      key={slotIndex}
+                      data-slot-index={slotIndex}
+                      onPointerDown={(e) => handlePointerDown(e, slotIndex)}
+                      className={`rounded-md ${filled ? 'cursor-grab touch-none' : ''}`}
+                    >
+                      {filled ? (
+                        <Tile
+                          tile={tile.face}
+                          asOkey={isOkeyTile(tile.face, okey)}
+                        />
+                      ) : (
+                        <div className="h-12 w-9 rounded-md bg-amber-950/30" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-
-      {canOpen && onOpen && (
-        <div className="mt-2 flex justify-center">
-          <button
-            type="button"
-            onClick={() => onOpen(getGroups())}
-            className="rounded-md bg-amber-500 px-5 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400"
-          >
-            Aç
-          </button>
-        </div>
-      )}
 
       {drag && (
         <div
@@ -304,4 +360,4 @@ export function Rack({
       )}
     </div>
   );
-}
+});

@@ -8,9 +8,10 @@ import { isOkeyTile, type OkeyMatch } from './okey';
  *  - run (seri):   3+ tiles, same colour, consecutive values (no wrap-around).
  *  - group (grup): 3-4 tiles, same value, distinct colours.
  *
- * Jokers are wildcards: a false joker (sahte okey) OR a tile matching the okey
- * (indicator + 1). A meld needs at least one natural (non-joker) tile to anchor
- * its identity.
+ * The ONLY wildcard is the okey tile (indicator + 1). The false joker (sahte
+ * okey) is NOT a wildcard — it stands in for the okey's number value, i.e. it
+ * melds as that concrete numbered tile. A meld needs at least one non-wild tile
+ * to anchor its identity.
  *
  * Value convention: a run's jokers take the value of the position they fill;
  * extra jokers extend the run UPWARD (toward 13) to maximise its value.
@@ -29,9 +30,20 @@ export interface MeldInfo {
 
 type NumberFace = Extract<TileFace, { kind: 'number' }>;
 
-/** A wildcard: the false joker, or a tile that equals the okey. */
+/** The wildcard: the okey tile (indicator + 1). The false joker is NOT wild. */
 export function isJoker(face: TileFace, okey: OkeyMatch | null): boolean {
-  return face.kind === 'false-joker' || isOkeyTile(face, okey);
+  return isOkeyTile(face, okey);
+}
+
+/**
+ * The face a tile contributes to a meld. A false joker (sahte okey) stands in
+ * for the okey's number value, so it melds as that concrete numbered tile.
+ */
+export function meldFace(face: TileFace, okey: OkeyMatch | null): TileFace {
+  if (face.kind === 'false-joker' && okey) {
+    return { kind: 'number', color: okey.color, value: okey.value };
+  }
+  return face;
 }
 
 function tryGroup(naturals: NumberFace[], jokers: number): MeldInfo | null {
@@ -81,10 +93,17 @@ export function classifyMeld(
 ): MeldInfo | null {
   if (faces.length < 3) return null;
 
-  const naturals = faces.filter(
-    (face): face is NumberFace => face.kind === 'number' && !isJoker(face, okey),
-  );
-  const jokers = faces.length - naturals.length;
+  const naturals: NumberFace[] = [];
+  let jokers = 0;
+  for (const face of faces) {
+    if (isJoker(face, okey)) {
+      jokers++; // the okey tile is the wildcard
+      continue;
+    }
+    const resolved = meldFace(face, okey); // false joker -> okey number tile
+    if (resolved.kind === 'number') naturals.push(resolved);
+    else jokers++; // false joker with no okey (shouldn't happen) -> treat as wild
+  }
   if (naturals.length === 0) return null; // need an anchor
 
   // A set of tiles can sometimes be read as either a group or a run (e.g. one

@@ -9,6 +9,7 @@ import {
   drawFromDeck,
   openMelds,
   playPendingBotTurns,
+  processTile,
   subscribeToGame,
   subscribeToHand,
   takeFromDiscard,
@@ -157,11 +158,12 @@ export function GamePage() {
   const canTake = isDrawPhase;
   const canDiscard = isMyTurn && game.turnPhase === 'discard';
   const tableMelds = game.melds ?? [];
-  const canOpen =
-    isMyTurn &&
-    game.turnPhase === 'discard' &&
-    uid != null &&
-    !(game.opened ?? {})[uid];
+  const hasOpened = uid != null && (game.opened ?? {})[uid] === true;
+  // You can lay melds on any of your discard-phase turns: the first lay must
+  // reach 101 (handled below), later ones may add any valid melds.
+  const canOpen = isMyTurn && game.turnPhase === 'discard';
+  // İşleme requires you to have opened first.
+  const canProcess = canOpen && hasOpened;
 
   async function handleDraw() {
     if (!id || !uid) return;
@@ -215,7 +217,8 @@ export function GamePage() {
       (sum, entry) => sum + (entry.info?.value ?? 0),
       0,
     );
-    if (total < OPENING_MIN) {
+    const alreadyOpened = (game.opened ?? {})[uid] === true;
+    if (!alreadyOpened && total < OPENING_MIN) {
       setOpenError(
         `Geçerli perlerin toplamı ${total} — açmak için en az ${OPENING_MIN} gerekli.`,
       );
@@ -231,6 +234,17 @@ export function GamePage() {
     } catch (err) {
       console.error('openMelds failed:', err);
       setOpenError('Açma başarısız oldu.');
+    }
+  }
+
+  async function handleProcess(meldId: string, tileId: string) {
+    if (!id || !uid) return;
+    setOpenError(null);
+    try {
+      await processTile(id, uid, meldId, tileId);
+    } catch (err) {
+      console.error('processTile failed:', err);
+      setOpenError('Bu taş bu pere işlenemez.');
     }
   }
 
@@ -250,11 +264,14 @@ export function GamePage() {
         canTake={canTake}
         canDiscard={canDiscard}
         canOpen={canOpen}
+        hasOpened={hasOpened}
         melds={tableMelds}
+        canProcess={canProcess}
         onDraw={handleDraw}
         onTakeDiscard={handleTakeDiscard}
         onDiscard={handleDiscard}
         onOpen={handleOpen}
+        onProcess={handleProcess}
       />
       <RotateDevicePrompt />
 
@@ -267,7 +284,14 @@ export function GamePage() {
       {game.status === 'finished' && (
         <div className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-black/60 text-stone-100">
           <p className="text-lg font-semibold">Oyun bitti</p>
-          <p className="text-sm text-stone-300">Deste tükendi.</p>
+          <p className="text-sm text-stone-300">
+            {game.winner
+              ? `${
+                  lobby.players.find((p) => p.uid === game.winner)?.displayName ??
+                  'Bir oyuncu'
+                } kazandı!`
+              : 'Deste tükendi.'}
+          </p>
           <Link
             to={`/lobby/${lobby.id}`}
             className="mt-2 rounded-md bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"

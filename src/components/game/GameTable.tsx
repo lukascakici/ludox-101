@@ -3,11 +3,16 @@ import { Link } from 'react-router-dom';
 import { Seat } from './Seat';
 import { BoardCenter } from './BoardCenter';
 import { DiscardPile } from './DiscardPile';
-import { Rack } from './Rack';
+import { Rack, type RackHandle } from './Rack';
 import { Tile } from './Tile';
 import { FlyingTile, type Flight, type Point } from './FlyingTile';
 import { usePointerDrag, isOverSelector } from './usePointerDrag';
 import { computeOkey, isOkeyTile } from '@/game/okey';
+import {
+  arrangeBestMelds,
+  arrangePairs,
+  scoreArrangement,
+} from '@/game/arrange';
 import type { GameTile } from './Tile';
 import type { Tile as TileModel } from '@/game/tiles';
 import type { Lobby } from '@/types/lobby';
@@ -31,12 +36,17 @@ interface GameTableProps {
   canDiscard: boolean;
   /** Whether the player may open (lay melds) now. */
   canOpen: boolean;
+  /** Whether the player has already opened (changes the lay-meld label). */
+  hasOpened: boolean;
   /** Melds laid on the table. */
   melds: TableMeld[];
+  /** Whether the player may process (işle) tiles onto table melds now. */
+  canProcess: boolean;
   onDraw: () => void;
   onDiscard: (tileId: string) => void;
   onTakeDiscard: () => void;
   onOpen: (groups: TileModel[][]) => void;
+  onProcess: (meldId: string, tileId: string) => void;
 }
 
 const RACK_ZONE = '[data-rack-zone]';
@@ -61,11 +71,14 @@ export function GameTable({
   canTake,
   canDiscard,
   canOpen,
+  hasOpened,
   melds,
+  canProcess,
   onDraw,
   onDiscard,
   onTakeDiscard,
   onOpen,
+  onProcess,
 }: GameTableProps) {
   const count = playerOrder.length || 1;
   const foundIndex = currentUid ? playerOrder.indexOf(currentUid) : -1;
@@ -100,6 +113,10 @@ export function GameTable({
       ? Number((slotElement as HTMLElement).dataset.slotIndex)
       : null;
   }
+
+  const rackRef = useRef<RackHandle>(null);
+  const [currentGroups, setCurrentGroups] = useState<TileModel[][]>([]);
+  const score = scoreArrangement(currentGroups, okey);
 
   const deckDrag = usePointerDrag((x, y) => {
     if (isOverSelector(x, y, RACK_ZONE)) {
@@ -273,7 +290,7 @@ export function GameTable({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-32">
           <div
             data-open-area
-            className="h-40 max-w-md flex-1 overflow-auto rounded-xl border border-stone-100/15 bg-black/10 p-2"
+            className="pointer-events-auto h-40 max-w-md flex-1 overflow-auto rounded-xl border border-stone-100/15 bg-black/10 p-2"
           >
             {melds.length === 0 ? (
               <div className="flex h-full items-center justify-center text-xs text-stone-400">
@@ -282,7 +299,13 @@ export function GameTable({
             ) : (
               <div className="flex flex-wrap gap-3">
                 {melds.map((meld) => (
-                  <div key={meld.id} className="flex gap-0.5">
+                  <div
+                    key={meld.id}
+                    data-meld-id={meld.id}
+                    className={`flex gap-0.5 rounded-md ${
+                      canProcess ? 'ring-1 ring-amber-400/60' : ''
+                    }`}
+                  >
                     {meld.tiles.map((tile, index) => (
                       <Tile
                         key={index}
@@ -319,19 +342,75 @@ export function GameTable({
               : 'Sıra sende — desteden çek ya da soldakini al'
             : `Sıra: ${nameOf(currentTurnUid)}`}
         </span>
-        <Rack
-          tiles={hand}
-          okey={okey}
-          canDiscard={canDiscard}
-          onDiscard={onDiscard}
-          canOpen={canOpen}
-          onOpen={onOpen}
-          incomingSlot={pendingSlot}
-          onIncomingPlaced={() => setPendingSlot(null)}
-          {...(currentUid
-            ? { storageKey: `ludox-rack:${lobby.id}:${currentUid}` }
-            : {})}
-        />
+        <div className="flex items-end justify-center gap-3">
+          <Rack
+            ref={rackRef}
+            tiles={hand}
+            okey={okey}
+            canDiscard={canDiscard}
+            onDiscard={onDiscard}
+            canProcess={canProcess}
+            onProcess={onProcess}
+            onArrange={setCurrentGroups}
+            incomingSlot={pendingSlot}
+            onIncomingPlaced={() => setPendingSlot(null)}
+            {...(currentUid
+              ? { storageKey: `ludox-rack:${lobby.id}:${currentUid}` }
+              : {})}
+          />
+
+          <div className="flex flex-col gap-2">
+            {/* Score: series points / 101 and pairs / 5 */}
+            <div className="flex gap-1 text-xs">
+              <span
+                className={`rounded-md border px-2 py-1 font-semibold tabular-nums ${
+                  score.series >= 101
+                    ? 'border-amber-400 text-amber-300'
+                    : 'border-stone-100/30 text-stone-200'
+                }`}
+              >
+                {score.series}/101
+              </span>
+              <span
+                className={`rounded-md border px-2 py-1 font-semibold tabular-nums ${
+                  score.pairs >= 5
+                    ? 'border-amber-400 text-amber-300'
+                    : 'border-stone-100/30 text-stone-200'
+                }`}
+              >
+                {score.pairs}/5
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                rackRef.current?.setArrangement(arrangeBestMelds(hand, okey))
+              }
+              className="rounded-md border border-stone-100/30 px-3 py-1.5 text-sm font-medium text-stone-100 transition-colors hover:bg-white/10"
+            >
+              Seri Diz
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                rackRef.current?.setArrangement(arrangePairs(hand, okey))
+              }
+              className="rounded-md border border-stone-100/30 px-3 py-1.5 text-sm font-medium text-stone-100 transition-colors hover:bg-white/10"
+            >
+              Çift Diz
+            </button>
+            {canOpen && (
+              <button
+                type="button"
+                onClick={() => onOpen(currentGroups)}
+                className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400"
+              >
+                {hasOpened ? 'Per Koy' : 'Aç'}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Floating drag previews */}

@@ -42,6 +42,8 @@ export interface GameState {
   melds: TableMeld[];
   /** Whether doubling (katlama) is on — affects the opening threshold. */
   doubling: boolean;
+  /** uid of the winner once someone finishes (empty otherwise). */
+  winner?: string;
 }
 
 /** A player's private hand (Firestore `games/{lobbyId}/hands/{uid}`). */
@@ -49,7 +51,13 @@ export interface PlayerHand {
   tiles: Tile[];
 }
 
-export type MoveType = 'deal' | 'draw' | 'discard' | 'take' | 'open';
+export type MoveType =
+  | 'deal'
+  | 'draw'
+  | 'discard'
+  | 'take'
+  | 'open'
+  | 'process';
 
 /** An entry in the move log (Firestore `games/{lobbyId}/moves`). */
 export interface GameMove {
