@@ -13,8 +13,10 @@ import {
   isLobbyFull,
 } from '@/constants/lobby';
 import { getJoinErrorMessage } from '@/constants/joinErrors';
+import { useActiveLobby } from '@/hooks/useActiveLobby';
 import { useAuthStore } from '@/store/authStore';
 import { LobbyForm } from '@/components/LobbyForm';
+import { ActiveLobbyBanner } from '@/components/ActiveLobbyBanner';
 import { Input } from '@/components/ui/Input';
 import { LobbyStatus, type CreateLobbyInput, type Lobby } from '@/types/lobby';
 
@@ -94,6 +96,8 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
   const currentUid = user?.uid;
   const { settings } = lobby;
   const rules = settings.gameRules;
+
+  const activeLobbyId = useActiveLobby();
 
   const isHost = currentUid === lobby.hostId;
   const isMember = lobby.players.some((p) => p.uid === currentUid);
@@ -241,6 +245,13 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
                 {isHost ? 'Lobiyi Dağıt' : 'Lobiden Ayrıl'}
               </button>
             </>
+          ) : activeLobbyId && activeLobbyId !== lobby.id ? (
+            <div className="space-y-2">
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                Başka bir lobidesin. Katılmak için önce oradan ayrıl.
+              </p>
+              <ActiveLobbyBanner lobbyId={activeLobbyId} />
+            </div>
           ) : full ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Lobi dolu.

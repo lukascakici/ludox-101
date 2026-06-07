@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
 import { useOpenLobbies } from '@/hooks/useOpenLobbies';
+import { useActiveLobby } from '@/hooks/useActiveLobby';
 import { LobbyCard } from '@/components/LobbyCard';
+import { ActiveLobbyBanner } from '@/components/ActiveLobbyBanner';
 
 /**
  * Home page: live list of open lobbies (real-time from Firestore), plus a way
@@ -8,6 +10,7 @@ import { LobbyCard } from '@/components/LobbyCard';
  */
 export function LobbyListPage() {
   const { lobbies, loading, error } = useOpenLobbies();
+  const activeLobbyId = useActiveLobby();
 
   return (
     <div className="space-y-6">
@@ -20,6 +23,8 @@ export function LobbyListPage() {
           Lobi Oluştur
         </Link>
       </div>
+
+      {activeLobbyId && <ActiveLobbyBanner lobbyId={activeLobbyId} />}
 
       {loading && (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Yükleniyor…</p>

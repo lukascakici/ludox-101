@@ -111,6 +111,12 @@ export interface Lobby {
   settings: LobbySettings;
   status: LobbyStatus;
   players: readonly LobbyPlayer[];
+  /**
+   * Denormalized list of player uids, kept in sync with `players`. Enables an
+   * `array-contains` query to find which lobby a user is currently in (a single
+   * field index, no composite index needed).
+   */
+  playerUids: readonly string[];
   /** Maximum number of players allowed. */
   maxPlayers: number;
   /** Hash of the password for private lobbies (optional). */

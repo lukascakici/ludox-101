@@ -90,6 +90,7 @@ export async function createLobby(
     settings,
     status: LobbyStatus.Waiting,
     players: [hostPlayer],
+    playerUids: [host.uid],
     maxPlayers: OKEY101_MAX_PLAYERS,
     createdAt: serverTimestamp(),
     ...(settings.isPrivate && password
@@ -117,6 +118,7 @@ function toLobby(id: string, data: DocumentData): Lobby {
     settings: data.settings,
     status: data.status,
     players: data.players,
+    playerUids: data.playerUids ?? [],
     maxPlayers: data.maxPlayers,
     createdAt,
   } as Lobby;
@@ -223,13 +225,18 @@ export async function joinLobby(
         : {}),
     };
 
-    tx.update(ref, { players: [...players, newPlayer] });
+    const nextPlayers = [...players, newPlayer];
+    tx.update(ref, {
+      players: nextPlayers,
+      playerUids: nextPlayers.map((p) => p.uid),
+    });
   });
 }
 
 /**
- * Removes a player from a lobby. If the host leaves, the lobby is disbanded
- * (deleted). Runs in a transaction to stay consistent with concurrent joins.
+ * Removes a player from a lobby. When the host leaves, the host role is
+ * transferred to the next remaining player; the lobby is deleted only once it
+ * becomes empty. Runs in a transaction to stay consistent with concurrent joins.
  */
 export async function leaveLobby(id: string, uid: string): Promise<void> {
   const ref = doc(db, LOBBIES_COLLECTION, id);
@@ -239,16 +246,54 @@ export async function leaveLobby(id: string, uid: string): Promise<void> {
     if (!snapshot.exists()) return;
 
     const data = snapshot.data();
-    if (data.hostId === uid) {
+    const players: LobbyPlayer[] = data.players ?? [];
+    const remaining = players.filter((existing) => existing.uid !== uid);
+
+    // Nobody left -> remove the lobby entirely.
+    if (remaining.length === 0) {
       tx.delete(ref);
       return;
     }
 
-    const players: LobbyPlayer[] = data.players ?? [];
+    const leavingIsHost = data.hostId === uid;
+    // If the host left, promote the first remaining player; otherwise keep host.
+    const reseated = remaining.map((player, index) => ({
+      ...player,
+      isHost: leavingIsHost ? index === 0 : player.isHost,
+    }));
+    const nextHostId = leavingIsHost ? reseated[0].uid : data.hostId;
+
     tx.update(ref, {
-      players: players.filter((existing) => existing.uid !== uid),
+      hostId: nextHostId,
+      players: reseated,
+      playerUids: reseated.map((p) => p.uid),
     });
   });
+}
+
+/**
+ * Subscribes to the id of the (single) unfinished lobby the user is currently
+ * in, or `null` if none. Used to enforce one active lobby per user and to show
+ * a "you're already in a lobby" banner. Returns the unsubscribe function.
+ */
+export function subscribeToActiveLobby(
+  uid: string,
+  onChange: (lobbyId: string | null) => void,
+): Unsubscribe {
+  const userLobbies = query(
+    collection(db, LOBBIES_COLLECTION),
+    where('playerUids', 'array-contains', uid),
+  );
+  return onSnapshot(
+    userLobbies,
+    (snapshot) => {
+      const active = snapshot.docs.find(
+        (document) => document.data().status !== LobbyStatus.Finished,
+      );
+      onChange(active ? active.id : null);
+    },
+    () => onChange(null),
+  );
 }
 
 /**

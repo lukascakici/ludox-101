@@ -19,7 +19,7 @@ service cloud.firestore {
         resource.data.hostId == request.auth.uid
         || (
           resource.data.status == 'WAITING'
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'playerUids'])
           && request.resource.data.players.size() <= resource.data.maxPlayers
         )
       );
