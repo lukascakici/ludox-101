@@ -165,6 +165,7 @@ export async function playPendingBotTurns(lobbyId: string): Promise<void> {
     if (!snapshot.exists()) return;
 
     const game = snapshot.data() as GameState;
+    if (game.status !== 'playing') return;
     const current = game.playerOrder[game.turnIndex];
     if (!current.startsWith('bot')) return;
 
@@ -248,10 +249,12 @@ export async function drawFromDeck(lobbyId: string, uid: string): Promise<void> 
 
     tx.update(deckRef, { tiles: remaining });
     tx.update(handRef, { tiles: newHand });
+    // When the last tile is drawn, the hand ends automatically.
     tx.update(gameRef, {
       drawCount: remaining.length,
       [`handCounts.${uid}`]: newHand.length,
       turnPhase: 'discard',
+      ...(remaining.length === 0 ? { status: 'finished' } : {}),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'draw',

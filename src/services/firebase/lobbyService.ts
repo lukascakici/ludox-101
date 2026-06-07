@@ -152,6 +152,16 @@ export function subscribeToLobby(
 }
 
 /**
+ * Returns a finished game's lobby to the waiting state so it can be replayed or
+ * left cleanly (host-only, enforced by rules).
+ */
+export async function resetLobbyToWaiting(id: string): Promise<void> {
+  await updateDoc(doc(db, LOBBIES_COLLECTION, id), {
+    status: LobbyStatus.Waiting,
+  });
+}
+
+/**
  * Updates an existing lobby's name and settings (host-only, enforced by rules).
  * Password handling:
  *  - made public  -> existing hash is removed,

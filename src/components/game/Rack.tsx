@@ -19,6 +19,12 @@ interface RackProps {
   onDiscard?: (tileId: string) => void;
   /** Slots per row. Kept larger than a typical hand so there's room to arrange. */
   slotsPerRow?: number;
+  /** localStorage key to persist the rack arrangement across refreshes. */
+  storageKey?: string;
+  /** Preferred slot for the next incoming (drawn/taken) tile. */
+  incomingSlot?: number | null;
+  /** Called once the incoming tile has been placed. */
+  onIncomingPlaced?: () => void;
 }
 
 interface DragState {
@@ -26,6 +32,48 @@ interface DragState {
   tile: TileModel;
   x: number;
   y: number;
+}
+
+/**
+ * Builds the slot layout: restore saved positions (by tile id) for tiles still
+ * in hand, then place any remaining tiles in the first free slots.
+ */
+function buildSlots(
+  tiles: TileModel[],
+  totalSlots: number,
+  storageKey: string | undefined,
+): (TileModel | null)[] {
+  const byId = new Map(tiles.map((tile) => [tile.id, tile]));
+  const slots: (TileModel | null)[] = Array.from(
+    { length: totalSlots },
+    () => null,
+  );
+  const placed = new Set<string>();
+
+  if (storageKey) {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      const saved = raw ? (JSON.parse(raw) as (string | null)[]) : null;
+      if (Array.isArray(saved)) {
+        for (let i = 0; i < totalSlots && i < saved.length; i++) {
+          const id = saved[i];
+          if (id && byId.has(id) && !placed.has(id)) {
+            slots[i] = byId.get(id) ?? null;
+            placed.add(id);
+          }
+        }
+      }
+    } catch {
+      // Ignore malformed/unavailable storage.
+    }
+  }
+
+  const remaining = tiles.filter((tile) => !placed.has(tile.id));
+  let addIndex = 0;
+  for (let i = 0; i < totalSlots && addIndex < remaining.length; i++) {
+    if (!slots[i]) slots[i] = remaining[addIndex++];
+  }
+  return slots;
 }
 
 /**
@@ -40,11 +88,27 @@ export function Rack({
   canDiscard = false,
   onDiscard,
   slotsPerRow = 16,
+  storageKey,
+  incomingSlot = null,
+  onIncomingPlaced,
 }: RackProps) {
   const totalSlots = slotsPerRow * 2;
   const [slots, setSlots] = useState<(TileModel | null)[]>(() =>
-    Array.from({ length: totalSlots }, (_, index) => tiles[index] ?? null),
+    buildSlots(tiles, totalSlots, storageKey),
   );
+
+  // Persist the arrangement so it survives a page refresh.
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify(slots.map((slot) => slot?.id ?? null)),
+      );
+    } catch {
+      // Ignore storage write failures.
+    }
+  }, [slots, storageKey]);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
@@ -56,9 +120,14 @@ export function Rack({
   canDiscardRef.current = canDiscard;
   const onDiscardRef = useRef(onDiscard);
   onDiscardRef.current = onDiscard;
+  const incomingSlotRef = useRef(incomingSlot);
+  incomingSlotRef.current = incomingSlot;
+  const onIncomingPlacedRef = useRef(onIncomingPlaced);
+  onIncomingPlacedRef.current = onIncomingPlaced;
 
   // Reconcile local slots with the server hand whenever the tile set changes:
-  // keep placed tiles, drop missing ones, and add new ones to free slots.
+  // keep placed tiles, drop missing ones, and add new ones to free slots. A
+  // newly drawn/taken tile goes to the slot it was dropped on, if free.
   const idsKey = tiles.map((tile) => tile.id).join(',');
   useEffect(() => {
     setSlots((prev) => {
@@ -72,6 +141,19 @@ export function Rack({
       );
       const toAdd = want.filter((tile) => !placed.has(tile.id));
       let addIndex = 0;
+
+      const target = incomingSlotRef.current;
+      if (
+        target != null &&
+        target >= 0 &&
+        target < next.length &&
+        !next[target] &&
+        addIndex < toAdd.length
+      ) {
+        next[target] = toAdd[addIndex++];
+        onIncomingPlacedRef.current?.();
+      }
+
       for (let i = 0; i < next.length && addIndex < toAdd.length; i++) {
         if (!next[i]) next[i] = toAdd[addIndex++];
       }

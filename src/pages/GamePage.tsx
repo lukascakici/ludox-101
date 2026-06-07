@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { subscribeToLobby } from '@/services/firebase/lobbyService';
+import {
+  resetLobbyToWaiting,
+  subscribeToLobby,
+} from '@/services/firebase/lobbyService';
 import {
   discardTile,
   drawFromDeck,
@@ -67,19 +70,53 @@ export function GamePage() {
     });
   }, [id, uid]);
 
-  // Dev: when it's a bot's turn, auto-play their moves (guarded against re-entry).
+  // Dev: auto-play bot turns. A game-change trigger keeps it responsive, and a
+  // polling safety net re-kicks it if a bot ever gets stuck.
   const botPlayingRef = useRef(false);
-  useEffect(() => {
-    if (!import.meta.env.DEV || !id || !game) return;
-    const current = game.playerOrder[game.turnIndex];
-    if (!current.startsWith('bot') || botPlayingRef.current) return;
+  const gameRef = useRef<GameState | null>(game);
+  gameRef.current = game;
+
+  function maybePlayBots() {
+    if (!import.meta.env.DEV || !id || botPlayingRef.current) return;
+    const current = gameRef.current;
+    if (!current || current.status !== 'playing') return;
+    if (!current.playerOrder[current.turnIndex]?.startsWith('bot')) return;
     botPlayingRef.current = true;
     playPendingBotTurns(id)
       .catch((err) => console.error('bot auto-play failed:', err))
       .finally(() => {
         botPlayingRef.current = false;
       });
+  }
+
+  useEffect(() => {
+    maybePlayBots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, game]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const interval = setInterval(maybePlayBots, 1500);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // When the hand ends, the host returns the lobby to waiting so it's reusable
+  // and everyone can leave cleanly.
+  const resetDoneRef = useRef(false);
+  useEffect(() => {
+    if (!id || !game || !lobby) return;
+    if (
+      game.status === 'finished' &&
+      uid === lobby.hostId &&
+      !resetDoneRef.current
+    ) {
+      resetDoneRef.current = true;
+      resetLobbyToWaiting(id).catch((err) =>
+        console.error('resetLobbyToWaiting failed:', err),
+      );
+    }
+  }, [id, game, lobby, uid]);
 
   if (status === 'unauthenticated') return <Navigate to="/" replace />;
 
@@ -110,7 +147,8 @@ export function GamePage() {
   }
 
   const currentTurnUid = game.playerOrder[game.turnIndex];
-  const isMyTurn = !!uid && uid === currentTurnUid;
+  const isPlaying = game.status === 'playing';
+  const isMyTurn = isPlaying && !!uid && uid === currentTurnUid;
   const isDrawPhase = isMyTurn && game.turnPhase === 'draw';
   const canDraw = isDrawPhase && game.drawCount > 0;
   const canTake = isDrawPhase;
@@ -163,6 +201,19 @@ export function GamePage() {
         onDiscard={handleDiscard}
       />
       <RotateDevicePrompt />
+
+      {game.status === 'finished' && (
+        <div className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-black/60 text-stone-100">
+          <p className="text-lg font-semibold">Oyun bitti</p>
+          <p className="text-sm text-stone-300">Deste tükendi.</p>
+          <Link
+            to={`/lobby/${lobby.id}`}
+            className="mt-2 rounded-md bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+          >
+            Lobiye dön
+          </Link>
+        </div>
+      )}
     </>
   );
 }

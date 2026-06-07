@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Seat } from './Seat';
 import { BoardCenter } from './BoardCenter';
@@ -79,11 +80,28 @@ export function GameTable({
   const leftTop = leftPile[leftPile.length - 1];
   const canTakeLeft = canTake && !!leftTop;
 
+  const [pendingSlot, setPendingSlot] = useState<number | null>(null);
+
+  function slotAt(x: number, y: number): number | null {
+    const slotElement = document.elementFromPoint(x, y)?.closest(
+      '[data-slot-index]',
+    );
+    return slotElement
+      ? Number((slotElement as HTMLElement).dataset.slotIndex)
+      : null;
+  }
+
   const deckDrag = usePointerDrag((x, y) => {
-    if (isOverSelector(x, y, RACK_ZONE)) onDraw();
+    if (isOverSelector(x, y, RACK_ZONE)) {
+      setPendingSlot(slotAt(x, y));
+      onDraw();
+    }
   });
   const takeDrag = usePointerDrag((x, y) => {
-    if (isOverSelector(x, y, RACK_ZONE)) onTakeDiscard();
+    if (isOverSelector(x, y, RACK_ZONE)) {
+      setPendingSlot(slotAt(x, y));
+      onTakeDiscard();
+    }
   });
 
   return (
@@ -189,6 +207,11 @@ export function GameTable({
           okey={okey}
           canDiscard={canDiscard}
           onDiscard={onDiscard}
+          incomingSlot={pendingSlot}
+          onIncomingPlaced={() => setPendingSlot(null)}
+          {...(currentUid
+            ? { storageKey: `ludox-rack:${lobby.id}:${currentUid}` }
+            : {})}
         />
       </div>
 
