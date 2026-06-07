@@ -44,8 +44,15 @@ export function LobbyListPage() {
 
       {!loading && !error && lobbies.length > 0 && (
         <div className="space-y-3">
+          <p className="text-xs text-zinc-400 dark:text-zinc-500">
+            {lobbies.length} açık lobi
+          </p>
           {lobbies.map((lobby) => (
-            <LobbyCard key={lobby.id} lobby={lobby} />
+            <LobbyCard
+              key={lobby.id}
+              lobby={lobby}
+              activeLobbyId={activeLobbyId}
+            />
           ))}
         </div>
       )}
