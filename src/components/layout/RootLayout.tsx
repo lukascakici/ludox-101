@@ -1,8 +1,17 @@
+import { Suspense } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UserMenu } from '@/components/UserMenu';
 import { AuthScreen } from '@/components/auth/AuthScreen';
+
+function PageFallback() {
+  return (
+    <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
+      Yükleniyor…
+    </p>
+  );
+}
 
 /**
  * App shell: a persistent header plus the routed page content. Also acts as the
@@ -33,7 +42,11 @@ export function RootLayout() {
 
         {status === 'unauthenticated' && <AuthScreen />}
 
-        {status === 'authenticated' && <Outlet />}
+        {status === 'authenticated' && (
+          <Suspense fallback={<PageFallback />}>
+            <Outlet />
+          </Suspense>
+        )}
       </main>
     </div>
   );

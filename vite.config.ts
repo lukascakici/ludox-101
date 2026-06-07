@@ -11,4 +11,18 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split heavy vendors into their own chunks for better caching and to
+        // keep individual chunks under the size-warning threshold.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          'firebase-app': ['firebase/app'],
+          'firebase-auth': ['firebase/auth'],
+          'firebase-firestore': ['firebase/firestore'],
+        },
+      },
+    },
+  },
 });

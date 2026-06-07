@@ -1,10 +1,19 @@
+import { lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
 import { useAuthListener } from '@/hooks/useAuthListener';
 import { RootLayout } from '@/components/layout/RootLayout';
-import { LobbyListPage } from '@/pages/LobbyListPage';
-import { CreateLobbyPage } from '@/pages/CreateLobbyPage';
-import { LobbyPage } from '@/pages/LobbyPage';
+
+// Route pages are code-split so each loads on demand.
+const LobbyListPage = lazy(() =>
+  import('@/pages/LobbyListPage').then((m) => ({ default: m.LobbyListPage })),
+);
+const CreateLobbyPage = lazy(() =>
+  import('@/pages/CreateLobbyPage').then((m) => ({ default: m.CreateLobbyPage })),
+);
+const LobbyPage = lazy(() =>
+  import('@/pages/LobbyPage').then((m) => ({ default: m.LobbyPage })),
+);
 
 function App() {
   // Bind theme and auth state to the app once at the root.
