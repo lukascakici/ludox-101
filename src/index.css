@@ -1,1 +1,21 @@
 @import 'tailwindcss';
+
+/*
+ * Enable class-based dark mode in Tailwind v4.
+ * `dark:` variants apply when a `.dark` class is present on a parent (we put it
+ * on <html>), instead of relying on the OS `prefers-color-scheme` media query.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * "Felt" palette — the deep, desaturated green of a classic Okey table cloth.
+ * Used as the base surface of the DARK theme (light theme stays neutral zinc).
+ * Low saturation keeps it easy on the eyes; flat solids only, no gradients.
+ * Blue-felt alternative: 950 #0e1a26 / 900 #15293a / 800 #1f3a52 / 700 #2c5278.
+ */
+@theme {
+  --color-felt-950: #0f1f18; /* app background */
+  --color-felt-900: #16302a; /* card surface   */
+  --color-felt-800: #1f4339; /* borders        */
+  --color-felt-700: #2c5b4c; /* hover / accents */
+}
