@@ -12,9 +12,20 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.hostId == request.auth.uid;
 
-      // For now only the host can modify/remove the lobby.
-      // (Join/leave by other players will be opened up in a later phase.)
-      allow update, delete: if request.auth != null
+      // The host can change anything. Other signed-in players may only
+      // join/leave: i.e. the ONLY field that changes is `players`, the lobby is
+      // still waiting, and capacity is not exceeded.
+      allow update: if request.auth != null && (
+        resource.data.hostId == request.auth.uid
+        || (
+          resource.data.status == 'WAITING'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players'])
+          && request.resource.data.players.size() <= resource.data.maxPlayers
+        )
+      );
+
+      // Only the host can delete (disband) the lobby.
+      allow delete: if request.auth != null
         && resource.data.hostId == request.auth.uid;
     }
   }

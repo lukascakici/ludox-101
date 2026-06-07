@@ -6,6 +6,7 @@ import {
   getDoc,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   Timestamp,
   updateDoc,
@@ -23,10 +24,25 @@ import {
 } from '@/types/lobby';
 import { OKEY101_MAX_PLAYERS } from '@/constants/lobby';
 
-/** Minimal identity needed to create a lobby (comes from Firebase Auth later). */
+/** Minimal player identity (comes from Firebase Auth). */
 export interface LobbyHost {
   uid: string;
   displayName: string;
+}
+
+/** Reasons a join/leave action can fail, surfaced to the UI for messaging. */
+export type LobbyActionErrorCode =
+  | 'not-found'
+  | 'not-waiting'
+  | 'full'
+  | 'wrong-password';
+
+/** Error thrown by join/leave when an action is not allowed. */
+export class LobbyActionError extends Error {
+  constructor(readonly code: LobbyActionErrorCode) {
+    super(code);
+    this.name = 'LobbyActionError';
+  }
 }
 
 const LOBBIES_COLLECTION = 'lobbies';
@@ -164,6 +180,74 @@ export async function updateLobby(
 export async function startLobby(id: string): Promise<void> {
   await updateDoc(doc(db, LOBBIES_COLLECTION, id), {
     status: LobbyStatus.InProgress,
+  });
+}
+
+/**
+ * Seats a player in a lobby. Runs in a transaction so capacity is enforced
+ * atomically (no over-seating under concurrent joins). Idempotent: joining a
+ * lobby you're already in is a no-op. Verifies the password for private lobbies.
+ */
+export async function joinLobby(
+  id: string,
+  player: LobbyHost,
+  password?: string,
+): Promise<void> {
+  const ref = doc(db, LOBBIES_COLLECTION, id);
+  const providedHash = password ? await hashPassword(password) : null;
+
+  await runTransaction(db, async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists()) throw new LobbyActionError('not-found');
+
+    const data = snapshot.data();
+    if (data.status !== LobbyStatus.Waiting) {
+      throw new LobbyActionError('not-waiting');
+    }
+
+    const players: LobbyPlayer[] = data.players ?? [];
+    if (players.some((existing) => existing.uid === player.uid)) return;
+    if (players.length >= data.maxPlayers) throw new LobbyActionError('full');
+
+    if (data.passwordHash && data.passwordHash !== providedHash) {
+      throw new LobbyActionError('wrong-password');
+    }
+
+    const newPlayer: LobbyPlayer = {
+      uid: player.uid,
+      displayName: player.displayName,
+      isHost: false,
+      // Paired mode seats alternate teams (0,1,0,1) around the table.
+      ...(data.settings.gameMode === GameMode.Paired
+        ? { team: (players.length % 2) as 0 | 1 }
+        : {}),
+    };
+
+    tx.update(ref, { players: [...players, newPlayer] });
+  });
+}
+
+/**
+ * Removes a player from a lobby. If the host leaves, the lobby is disbanded
+ * (deleted). Runs in a transaction to stay consistent with concurrent joins.
+ */
+export async function leaveLobby(id: string, uid: string): Promise<void> {
+  const ref = doc(db, LOBBIES_COLLECTION, id);
+
+  await runTransaction(db, async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists()) return;
+
+    const data = snapshot.data();
+    if (data.hostId === uid) {
+      tx.delete(ref);
+      return;
+    }
+
+    const players: LobbyPlayer[] = data.players ?? [];
+    tx.update(ref, {
+      players: players.filter((existing) => existing.uid !== uid),
+    });
   });
 }
 

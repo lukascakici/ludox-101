@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
+  joinLobby,
+  leaveLobby,
   startLobby,
   subscribeToLobby,
   updateLobby,
@@ -10,8 +12,10 @@ import {
   gameModeLabels,
   isLobbyFull,
 } from '@/constants/lobby';
+import { getJoinErrorMessage } from '@/constants/joinErrors';
 import { useAuthStore } from '@/store/authStore';
 import { LobbyForm } from '@/components/LobbyForm';
+import { Input } from '@/components/ui/Input';
 import { LobbyStatus, type CreateLobbyInput, type Lobby } from '@/types/lobby';
 
 type LoadState = 'loading' | 'ready' | 'notfound' | 'error';
@@ -85,11 +89,14 @@ export function LobbyPage() {
 }
 
 function LobbyRoom({ lobby }: { lobby: Lobby }) {
-  const currentUid = useAuthStore((s) => s.user?.uid);
+  const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const currentUid = user?.uid;
   const { settings } = lobby;
   const rules = settings.gameRules;
 
   const isHost = currentUid === lobby.hostId;
+  const isMember = lobby.players.some((p) => p.uid === currentUid);
   const full = isLobbyFull(lobby);
   const waiting = lobby.status === LobbyStatus.Waiting;
   const inProgress = lobby.status === LobbyStatus.InProgress;
@@ -99,8 +106,43 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
   const [startError, setStartError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinPassword, setJoinPassword] = useState('');
+  const [leaving, setLeaving] = useState(false);
 
   const canEdit = isHost && waiting;
+
+  async function handleJoin() {
+    if (!user) return;
+    setJoinError(null);
+    setJoining(true);
+    try {
+      await joinLobby(
+        lobby.id,
+        { uid: user.uid, displayName: user.displayName?.trim() || 'Oyuncu' },
+        settings.isPrivate ? joinPassword : undefined,
+      );
+      // Realtime subscription will seat us; no manual update needed.
+    } catch (err) {
+      console.error('joinLobby failed:', err);
+      setJoinError(getJoinErrorMessage(err));
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  async function handleLeave() {
+    if (!currentUid) return;
+    setLeaving(true);
+    try {
+      await leaveLobby(lobby.id, currentUid);
+      navigate('/');
+    } catch (err) {
+      console.error('leaveLobby failed:', err);
+      setLeaving(false);
+    }
+  }
 
   async function handleSave(input: CreateLobbyInput) {
     setSaveError(null);
@@ -161,13 +203,13 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
           ))}
         </ul>
 
-        {/* Start gate */}
-        <div className="mt-5">
+        {/* Actions: join / leave / start */}
+        <div className="mt-5 space-y-2">
           {inProgress ? (
             <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
               Oyun devam ediyor. (Oyun ekranı yakında.)
             </p>
-          ) : (
+          ) : isMember ? (
             <>
               {!full && (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -180,14 +222,51 @@ function LobbyRoom({ lobby }: { lobby: Lobby }) {
                   type="button"
                   onClick={handleStart}
                   disabled={!full || !waiting || starting}
-                  className="mt-2 w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+                  className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
                 >
                   {starting ? 'Başlatılıyor…' : 'Oyunu Başlat'}
                 </button>
               )}
               {startError && (
-                <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+                <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
                   {startError}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={handleLeave}
+                disabled={leaving}
+                className="w-full rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-40 dark:border-felt-700 dark:text-zinc-200 dark:hover:bg-felt-800"
+              >
+                {isHost ? 'Lobiyi Dağıt' : 'Lobiden Ayrıl'}
+              </button>
+            </>
+          ) : full ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Lobi dolu.
+            </p>
+          ) : (
+            <>
+              {settings.isPrivate && (
+                <Input
+                  type="password"
+                  value={joinPassword}
+                  onChange={(e) => setJoinPassword(e.target.value)}
+                  maxLength={32}
+                  placeholder="Lobi şifresi"
+                />
+              )}
+              <button
+                type="button"
+                onClick={handleJoin}
+                disabled={joining}
+                className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+              >
+                {joining ? 'Katılınıyor…' : 'Lobiye Katıl'}
+              </button>
+              {joinError && (
+                <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+                  {joinError}
                 </p>
               )}
             </>
