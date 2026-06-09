@@ -11,7 +11,7 @@ import {
 import { db } from './config';
 import { deal } from '@/game/deal';
 import { computeOkey } from '@/game/okey';
-import { classifyMeld, OPENING_MIN } from '@/game/melds';
+import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import { orderMeld } from '@/game/arrange';
 import { LobbyStatus, type Lobby, type LobbyPlayer } from '@/types/lobby';
 import type { GameState, PlayerHand, TableMeld } from '@/types/game';
@@ -54,6 +54,7 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     discards,
     handCounts,
     opened: {},
+    openedWith: {},
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
   };
@@ -131,6 +132,7 @@ export async function startSoloTestGame(
     discards,
     handCounts,
     opened: {},
+    openedWith: {},
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
   };
@@ -221,6 +223,10 @@ export async function openMelds(
     if (game.turnPhase !== 'discard') throw new GameActionError('wrong-phase');
 
     const alreadyOpened = (game.opened ?? {})[uid] === true;
+    // A player who opened with pairs may never lay normal melds afterwards.
+    if (alreadyOpened && (game.openedWith ?? {})[uid] === 'pair') {
+      throw new GameActionError('pairs-no-meld');
+    }
     const existingMelds = game.melds ?? [];
 
     let total = 0;
@@ -256,6 +262,8 @@ export async function openMelds(
     tx.update(gameRef, {
       melds: [...existingMelds, ...tableMelds],
       [`opened.${uid}`]: true,
+      // Record the opening kind only on the FIRST open (don't overwrite later).
+      ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'meld' }),
       [`handCounts.${uid}`]: remaining.length,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
@@ -263,6 +271,88 @@ export async function openMelds(
       by: uid,
       at: serverTimestamp(),
       total,
+    });
+  });
+}
+
+/**
+ * Lays pairs (çift) on the table. The FIRST time this opens the player (≥5
+ * pairs, openedWith='pair'). Afterwards it adds more pairs to the shared pairs
+ * area. A meld opener may add pairs only once a pairs area already exists
+ * (someone has opened with pairs). Keeps at least one tile to discard.
+ */
+export async function layPairs(
+  lobbyId: string,
+  uid: string,
+  groups: Tile[][],
+): Promise<void> {
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const handRef = doc(gameRef, 'hands', uid);
+
+  await runTransaction(db, async (tx) => {
+    const [gameSnap, handSnap] = await Promise.all([
+      tx.get(gameRef),
+      tx.get(handRef),
+    ]);
+    if (!gameSnap.exists() || !handSnap.exists()) {
+      throw new GameActionError('missing');
+    }
+
+    const game = gameSnap.data() as GameState;
+    if (game.playerOrder[game.turnIndex] !== uid) {
+      throw new GameActionError('not-your-turn');
+    }
+    if (game.turnPhase !== 'discard') throw new GameActionError('wrong-phase');
+
+    if (groups.length === 0) throw new GameActionError('invalid-pair');
+    for (const group of groups) {
+      if (!isPair(group.map((tile) => tile.face), game.okey)) {
+        throw new GameActionError('invalid-pair');
+      }
+    }
+
+    const alreadyOpened = (game.opened ?? {})[uid] === true;
+    const existingMelds = game.melds ?? [];
+    const pairsAreaExists = existingMelds.some((meld) => meld.kind === 'pair');
+
+    if (!alreadyOpened) {
+      // Opening with pairs requires reaching the pairs threshold.
+      if (groups.length < PAIRS_MIN) {
+        throw new GameActionError('pairs-below-threshold');
+      }
+    } else if ((game.openedWith ?? {})[uid] !== 'pair' && !pairsAreaExists) {
+      // A meld opener may only add pairs once a pairs area exists on the table.
+      throw new GameActionError('no-pairs-area');
+    }
+
+    const pairMelds: TableMeld[] = groups.map((group, index) => ({
+      id: `${uid}-p-${existingMelds.length + index}`,
+      owner: uid,
+      kind: 'pair',
+      tiles: group,
+    }));
+
+    const usedIds = new Set(groups.flat().map((tile) => tile.id));
+    const handTiles = (handSnap.data() as PlayerHand).tiles;
+    const remaining = handTiles.filter((tile) => !usedIds.has(tile.id));
+    if (handTiles.length - remaining.length !== usedIds.size) {
+      throw new GameActionError('tile-not-in-hand');
+    }
+    if (remaining.length < 1) throw new GameActionError('must-keep-tile');
+
+    tx.update(handRef, { tiles: remaining });
+    tx.update(gameRef, {
+      melds: [...existingMelds, ...pairMelds],
+      [`opened.${uid}`]: true,
+      // Record 'pair' only when this lay is the player's first opening.
+      ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'pair' }),
+      [`handCounts.${uid}`]: remaining.length,
+    });
+    tx.set(doc(collection(gameRef, 'moves')), {
+      type: 'open',
+      by: uid,
+      at: serverTimestamp(),
+      pairs: groups.length,
     });
   });
 }
@@ -410,7 +500,11 @@ export class GameActionError extends Error {
       | 'tile-not-in-hand'
       | 'already-opened'
       | 'invalid-meld'
+      | 'invalid-pair'
       | 'below-threshold'
+      | 'pairs-below-threshold'
+      | 'pairs-no-meld'
+      | 'no-pairs-area'
       | 'must-keep-tile'
       | 'not-opened'
       | 'meld-not-found'

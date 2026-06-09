@@ -8,7 +8,7 @@ import { Tile } from './Tile';
 import { FlyingTile, type Flight, type Point } from './FlyingTile';
 import { usePointerDrag, isOverSelector } from './usePointerDrag';
 import { computeOkey, isOkeyTile } from '@/game/okey';
-import { classifyMeld } from '@/game/melds';
+import { classifyMeld, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import {
   arrangeBestMelds,
   arrangePairs,
@@ -39,6 +39,10 @@ interface GameTableProps {
   canOpen: boolean;
   /** Whether the player has already opened (changes the lay-meld label). */
   hasOpened: boolean;
+  /** How this player opened, or null if they haven't opened yet. */
+  myOpenType: 'meld' | 'pair' | null;
+  /** Whether a pairs area exists on the table (someone opened with pairs). */
+  pairsAreaExists: boolean;
   /** Melds laid on the table. */
   melds: TableMeld[];
   /** Whether the player may process (işle) tiles onto table melds now. */
@@ -49,6 +53,7 @@ interface GameTableProps {
   onDiscard: (tileId: string) => void;
   onTakeDiscard: () => void;
   onOpen: (groups: TileModel[][]) => void;
+  onLayPairs: (groups: TileModel[][]) => void;
   onProcess: (meldId: string, tileId: string) => void;
   onAutoProcess: () => void;
 }
@@ -76,6 +81,8 @@ export function GameTable({
   canDiscard,
   canOpen,
   hasOpened,
+  myOpenType,
+  pairsAreaExists,
   melds,
   canProcess,
   assisted,
@@ -83,6 +90,7 @@ export function GameTable({
   onDiscard,
   onTakeDiscard,
   onOpen,
+  onLayPairs,
   onProcess,
   onAutoProcess,
 }: GameTableProps) {
@@ -139,6 +147,10 @@ export function GameTable({
     }
   }
   const hasProcessable = processableIds.size > 0;
+
+  // The open area splits into perler (runs/groups) and çiftler (pairs).
+  const meldMelds = melds.filter((meld) => meld.kind !== 'pair');
+  const pairMelds = melds.filter((meld) => meld.kind === 'pair');
 
   const deckDrag = usePointerDrag((x, y) => {
     if (isOverSelector(x, y, RACK_ZONE)) {
@@ -254,7 +266,7 @@ export function GameTable({
     }
     for (const meld of newMelds) {
       const from = centerOf(seatSelector(meld.owner));
-      const to = centerOf(`[data-meld-id="${meld.id}"]`);
+      const to = centerOf(`[data-meld-anim="${meld.id}"]`);
       if (from && to) {
         meld.tiles.forEach((tile, index) => {
           addFlight({ face: tile.face, from, to, delay: index * 90 });
@@ -350,36 +362,78 @@ export function GameTable({
         {/* Center: the opening area (where melds will be laid) + deck/indicator.
             The container is click-through so corner piles stay droppable; only
             the deck re-enables pointer events. */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-32">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-16">
           <div
             data-open-area
-            className="pointer-events-auto h-40 max-w-md flex-1 overflow-auto rounded-xl border border-stone-100/15 bg-black/10 p-2"
+            className="pointer-events-auto flex h-44 max-w-3xl flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"
           >
-            {melds.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-xs text-stone-400">
-                Açma alanı
+            {/* Perler (runs/groups) */}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
+                Perler
+              </span>
+              <div className="flex flex-1 flex-wrap content-start gap-2 overflow-auto">
+                {meldMelds.length === 0 ? (
+                  <span className="m-auto text-xs text-stone-500">
+                    Henüz per yok
+                  </span>
+                ) : (
+                  meldMelds.map((meld) => (
+                    <div
+                      key={meld.id}
+                      data-meld-id={meld.id}
+                      data-meld-anim={meld.id}
+                      className={`flex h-fit gap-0.5 rounded-md bg-black/25 p-1 ring-1 ${
+                        canProcess
+                          ? 'ring-amber-400/60'
+                          : 'ring-black/30'
+                      }`}
+                    >
+                      {meld.tiles.map((tile, index) => (
+                        <Tile
+                          key={index}
+                          tile={tile.face}
+                          asOkey={isOkeyTile(tile.face, okey)}
+                        />
+                      ))}
+                    </div>
+                  ))
+                )}
               </div>
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {melds.map((meld) => (
-                  <div
-                    key={meld.id}
-                    data-meld-id={meld.id}
-                    className={`flex gap-0.5 rounded-md ${
-                      canProcess ? 'ring-1 ring-amber-400/60' : ''
-                    }`}
-                  >
-                    {meld.tiles.map((tile, index) => (
-                      <Tile
-                        key={index}
-                        tile={tile.face}
-                        asOkey={isOkeyTile(tile.face, okey)}
-                      />
-                    ))}
-                  </div>
-                ))}
+            </div>
+
+            {/* Divider */}
+            <div className="w-px shrink-0 self-stretch bg-stone-100/15" />
+
+            {/* Çiftler (pairs) */}
+            <div className="flex w-44 shrink-0 flex-col">
+              <span className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
+                Çiftler
+              </span>
+              <div className="flex flex-1 flex-wrap content-start gap-1.5 overflow-auto">
+                {pairMelds.length === 0 ? (
+                  <span className="m-auto text-xs text-stone-500">
+                    Henüz çift yok
+                  </span>
+                ) : (
+                  pairMelds.map((meld) => (
+                    <div
+                      key={meld.id}
+                      data-meld-anim={meld.id}
+                      className="flex h-fit gap-0.5 rounded-md bg-black/25 p-1 ring-1 ring-black/30"
+                    >
+                      {meld.tiles.map((tile, index) => (
+                        <Tile
+                          key={index}
+                          tile={tile.face}
+                          asOkey={isOkeyTile(tile.face, okey)}
+                        />
+                      ))}
+                    </div>
+                  ))
+                )}
               </div>
-            )}
+            </div>
           </div>
           <div className="pointer-events-auto">
             <BoardCenter
@@ -479,15 +533,47 @@ export function GameTable({
               </button>
             )}
 
-            {/* Aç / Per Koy stays in place; only its enabled state changes. */}
-            <button
-              type="button"
-              onClick={() => onOpen(currentGroups)}
-              disabled={!canOpen}
-              className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {hasOpened ? 'Per Koy' : 'Aç'}
-            </button>
+            {/* Açma / koyma actions. The buttons stay mounted; only their
+                enabled state changes per turn so the layout never shifts. */}
+            {!hasOpened ? (
+              <button
+                type="button"
+                onClick={() =>
+                  // Auto-route: open with pairs only when 5+ pairs are arranged
+                  // and the meld total can't reach 101.
+                  score.series < OPENING_MIN && score.pairs >= PAIRS_MIN
+                    ? onLayPairs(currentGroups)
+                    : onOpen(currentGroups)
+                }
+                disabled={!canOpen}
+                className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Aç
+              </button>
+            ) : (
+              <>
+                {myOpenType !== 'pair' && (
+                  <button
+                    type="button"
+                    onClick={() => onOpen(currentGroups)}
+                    disabled={!canOpen}
+                    className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Per Koy
+                  </button>
+                )}
+                {(myOpenType === 'pair' || pairsAreaExists) && (
+                  <button
+                    type="button"
+                    onClick={() => onLayPairs(currentGroups)}
+                    disabled={!canOpen}
+                    className="rounded-md border border-amber-400 px-3 py-1.5 text-sm font-semibold text-amber-200 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Çift Koy
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>

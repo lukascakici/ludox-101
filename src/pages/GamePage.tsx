@@ -8,6 +8,7 @@ import {
   autoProcess,
   discardTile,
   drawFromDeck,
+  layPairs,
   openMelds,
   playPendingBotTurns,
   processTile,
@@ -15,7 +16,7 @@ import {
   subscribeToHand,
   takeFromDiscard,
 } from '@/services/firebase/gameService';
-import { classifyMeld, OPENING_MIN } from '@/game/melds';
+import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
 import { RotateDevicePrompt } from '@/components/game/RotateDevicePrompt';
@@ -167,6 +168,9 @@ export function GamePage() {
   const canDiscard = isMyTurn && game.turnPhase === 'discard';
   const tableMelds = game.melds ?? [];
   const hasOpened = uid != null && (game.opened ?? {})[uid] === true;
+  const myOpenType =
+    uid != null ? ((game.openedWith ?? {})[uid] ?? null) : null;
+  const pairsAreaExists = tableMelds.some((meld) => meld.kind === 'pair');
   // You can lay melds on any of your discard-phase turns: the first lay must
   // reach 101 (handled below), later ones may add any valid melds.
   const canOpen = isMyTurn && game.turnPhase === 'discard';
@@ -245,6 +249,39 @@ export function GamePage() {
     }
   }
 
+  async function handleLayPairs(groups: Tile[][]) {
+    if (!id || !uid || !game) return;
+    setOpenError(null);
+
+    // Only contiguous valid pairs count; leave a gap between each pair.
+    const pairGroups = groups.filter((tiles) =>
+      isPair(
+        tiles.map((tile) => tile.face),
+        game.okey,
+      ),
+    );
+
+    if (pairGroups.length === 0) {
+      setOpenError('Geçerli çift oluştur (aralarına boşluk bırak).');
+      return;
+    }
+
+    const alreadyOpened = (game.opened ?? {})[uid] === true;
+    if (!alreadyOpened && pairGroups.length < PAIRS_MIN) {
+      setOpenError(
+        `${pairGroups.length} çift — açmak için en az ${PAIRS_MIN} çift gerekli.`,
+      );
+      return;
+    }
+
+    try {
+      await layPairs(id, uid, pairGroups);
+    } catch (err) {
+      console.error('layPairs failed:', err);
+      setOpenError('Çift koymak başarısız oldu.');
+    }
+  }
+
   async function handleProcess(meldId: string, tileId: string) {
     if (!id || !uid) return;
     setOpenError(null);
@@ -282,6 +319,8 @@ export function GamePage() {
         canDiscard={canDiscard}
         canOpen={canOpen}
         hasOpened={hasOpened}
+        myOpenType={myOpenType}
+        pairsAreaExists={pairsAreaExists}
         melds={tableMelds}
         canProcess={canProcess}
         assisted={lobby.settings.assisted ?? true}
@@ -289,6 +328,7 @@ export function GamePage() {
         onTakeDiscard={handleTakeDiscard}
         onDiscard={handleDiscard}
         onOpen={handleOpen}
+        onLayPairs={handleLayPairs}
         onProcess={handleProcess}
         onAutoProcess={handleAutoProcess}
       />

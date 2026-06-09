@@ -38,6 +38,12 @@ export interface GameState {
   handCounts: Record<string, number>;
   /** Whether each player has made their opening meld. */
   opened: Record<string, boolean>;
+  /**
+   * How each player opened: 'meld' (perlerle) or 'pair' (çiftlerle). A pair
+   * opener may not lay new melds afterwards; a meld opener may add pairs only
+   * once a pairs area exists. Absent for players who haven't opened yet.
+   */
+  openedWith: Record<string, 'meld' | 'pair'>;
   /** Melds laid on the table. */
   melds: TableMeld[];
   /** Whether doubling (katlama) is on — affects the opening threshold. */

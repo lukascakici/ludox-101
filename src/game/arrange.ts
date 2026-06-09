@@ -4,7 +4,13 @@ import {
   type TileColor,
   type TileFace,
 } from './tiles';
-import { classifyMeld, isJoker, meldFace, meldValue } from './melds';
+import {
+  classifyMeld,
+  isJoker,
+  isPair as isPairFaces,
+  meldFace,
+  meldValue,
+} from './melds';
 import type { OkeyMatch } from './okey';
 
 export interface Arrangement {
@@ -234,16 +240,9 @@ export function arrangeBestMelds(
 
 /** Whether a 2-tile group is a valid pair (identical tiles, or tile + joker). */
 function isPair(group: Tile[], okey: OkeyMatch | null): boolean {
-  if (group.length !== 2) return false;
-  const [a, b] = group;
-  if (isJoker(a.face, okey) || isJoker(b.face, okey)) return true;
-  const fa = meldFace(a.face, okey);
-  const fb = meldFace(b.face, okey);
-  return (
-    fa.kind === 'number' &&
-    fb.kind === 'number' &&
-    fa.color === fb.color &&
-    fa.value === fb.value
+  return isPairFaces(
+    group.map((t) => t.face),
+    okey,
   );
 }
 

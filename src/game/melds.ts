@@ -20,7 +20,10 @@ import { isOkeyTile, type OkeyMatch } from './okey';
 /** Minimum total meld value required to open (el açma) in non-doubling play. */
 export const OPENING_MIN = 101;
 
-export type MeldKind = 'run' | 'group';
+/** Minimum number of pairs required to open with pairs (çift açma). */
+export const PAIRS_MIN = 5;
+
+export type MeldKind = 'run' | 'group' | 'pair';
 
 export interface MeldInfo {
   kind: MeldKind;
@@ -117,6 +120,25 @@ export function classifyMeld(
 /** Whether the faces form a valid meld. */
 export function isValidMeld(faces: TileFace[], okey: OkeyMatch | null): boolean {
   return classifyMeld(faces, okey) !== null;
+}
+
+/**
+ * Whether two faces form a valid pair (çift): two identical numbered tiles, or
+ * any tile together with the okey (a joker stands in for its partner). A false
+ * joker pairs as the okey's number tile.
+ */
+export function isPair(faces: TileFace[], okey: OkeyMatch | null): boolean {
+  if (faces.length !== 2) return false;
+  const [a, b] = faces;
+  if (isJoker(a, okey) || isJoker(b, okey)) return true;
+  const fa = meldFace(a, okey);
+  const fb = meldFace(b, okey);
+  return (
+    fa.kind === 'number' &&
+    fb.kind === 'number' &&
+    fa.color === fb.color &&
+    fa.value === fb.value
+  );
 }
 
 /** Value of a valid meld, or 0 if invalid. */
