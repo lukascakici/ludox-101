@@ -13,6 +13,7 @@ import {
   openMelds,
   playPendingBotTurns,
   processTile,
+  returnTake,
   subscribeToGame,
   subscribeToHand,
   takeFromDiscard,
@@ -168,7 +169,10 @@ export function GamePage() {
   const isDrawPhase = isMyTurn && game.turnPhase === 'draw';
   const canDraw = isDrawPhase && game.drawCount > 0;
   const canTake = isDrawPhase;
-  const canDiscard = isMyTurn && game.turnPhase === 'discard';
+  // A tentatively-taken left tile must be opened or returned before discarding.
+  const hasPendingTake = !!game.pendingTake && game.pendingTake.uid === uid;
+  const canDiscard =
+    isMyTurn && game.turnPhase === 'discard' && !hasPendingTake;
   const tableMelds = game.melds ?? [];
   const hasOpened = uid != null && (game.opened ?? {})[uid] === true;
   const myOpenType =
@@ -322,6 +326,15 @@ export function GamePage() {
     }
   }
 
+  async function handleReturnTake() {
+    if (!id || !uid) return;
+    try {
+      await returnTake(id, uid);
+    } catch (err) {
+      console.error('returnTake failed:', err);
+    }
+  }
+
   return (
     <>
       <GameTable
@@ -341,6 +354,10 @@ export function GamePage() {
         hasOpened={hasOpened}
         myOpenType={myOpenType}
         pairsAreaExists={pairsAreaExists}
+        hasPendingTake={hasPendingTake}
+        {...(hasPendingTake && game.pendingTake
+          ? { pendingTileId: game.pendingTake.tile.id }
+          : {})}
         melds={tableMelds}
         canProcess={canProcess}
         assisted={lobby.settings.assisted ?? true}
@@ -349,6 +366,7 @@ export function GamePage() {
         onDiscard={handleDiscard}
         onOpen={handleOpen}
         onLayPairs={handleLayPairs}
+        onReturnTake={handleReturnTake}
         onProcess={handleProcess}
         onAutoProcess={handleAutoProcess}
       />

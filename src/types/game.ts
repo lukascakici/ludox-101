@@ -25,6 +25,21 @@ export interface RoundResult {
   doubled: boolean;
 }
 
+/**
+ * A tentative take of the left neighbour's discard by a not-yet-opened player.
+ * The tile sits in their hand on loan: they must OPEN this turn to commit it, or
+ * return it to the pile. While set, the owner can't draw/discard — only open or
+ * return.
+ */
+export interface PendingTake {
+  /** uid of the player who tentatively took the tile. */
+  uid: string;
+  /** The borrowed tile. */
+  tile: Tile;
+  /** Seat index (as a string) of the pile it came from (the left neighbour). */
+  fromSeat: string;
+}
+
 /** A turn has two phases: first draw a tile, then discard one. */
 export type TurnPhase = 'draw' | 'discard';
 
@@ -75,6 +90,8 @@ export interface GameState {
   doubling: boolean;
   /** uid of the winner once someone finishes (empty otherwise). */
   winner?: string;
+  /** A tentative left-discard take awaiting open-or-return (absent if none). */
+  pendingTake?: PendingTake;
 }
 
 /** A player's private hand (Firestore `games/{lobbyId}/hands/{uid}`). */
@@ -87,6 +104,7 @@ export type MoveType =
   | 'draw'
   | 'discard'
   | 'take'
+  | 'return'
   | 'open'
   | 'process';
 

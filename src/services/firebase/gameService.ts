@@ -280,6 +280,11 @@ export async function openMelds(
     if (remaining.length < 1) throw new GameActionError('must-keep-tile');
 
     const laidValue = handValueOf(groups.flat(), game.okey);
+    // Opening commits any tentatively-taken left tile.
+    // TODO(penalty): if `committedTake`, the discarder (game.pendingTake.fromSeat)
+    // owes a penalty of tileValue(game.pendingTake.tile) × 10 for a SERIES open.
+    // Only on this first open (pendingTake is never set for already-opened players).
+    const committedTake = game.pendingTake?.uid === uid;
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
       melds: [...existingMelds, ...tableMelds],
@@ -288,6 +293,7 @@ export async function openMelds(
       ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'meld' }),
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
+      ...(committedTake ? { pendingTake: deleteField() } : {}),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'open',
@@ -364,6 +370,10 @@ export async function layPairs(
     if (remaining.length < 1) throw new GameActionError('must-keep-tile');
 
     const laidValue = handValueOf(groups.flat(), game.okey);
+    // Opening with pairs commits any tentatively-taken left tile.
+    // TODO(penalty): if `committedTake`, the discarder (game.pendingTake.fromSeat)
+    // owes a penalty of tileValue(game.pendingTake.tile) × 20 for a PAIRS open.
+    const committedTake = game.pendingTake?.uid === uid;
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
       melds: [...existingMelds, ...pairMelds],
@@ -372,6 +382,7 @@ export async function layPairs(
       ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'pair' }),
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
+      ...(committedTake ? { pendingTake: deleteField() } : {}),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'open',
@@ -535,6 +546,8 @@ export class GameActionError extends Error {
       | 'must-keep-tile'
       | 'not-opened'
       | 'meld-not-found'
+      | 'must-resolve-take'
+      | 'no-pending-take'
       | 'missing',
   ) {
     super(code);
@@ -631,6 +644,14 @@ export async function takeFromDiscard(
     const taken = pile[pile.length - 1];
     const newHand = [...(handSnap.data() as PlayerHand).tiles, taken];
 
+    // A not-yet-opened player takes the left tile only TENTATIVELY: they must
+    // open this turn (which commits it) or return it. An already-opened player
+    // takes it outright. When the deck is empty there's no "draw instead"
+    // fallback, so the take must commit immediately (avoids a deadlock and keeps
+    // the deck-exhausted endgame working).
+    const opened = (game.opened ?? {})[uid] === true;
+    const tentative = !opened && game.drawCount > 0;
+
     tx.update(handRef, { tiles: newHand });
     tx.update(gameRef, {
       [`discards.${leftSeat}`]: pile.slice(0, -1),
@@ -638,12 +659,69 @@ export async function takeFromDiscard(
       [`handValue.${uid}`]:
         (game.handValue?.[uid] ?? 0) + tileValue(taken.face, game.okey),
       turnPhase: 'discard',
+      ...(tentative
+        ? { pendingTake: { uid, tile: taken, fromSeat: leftSeat } }
+        : {}),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'take',
       by: uid,
       at: serverTimestamp(),
       tile: taken.face,
+    });
+  });
+}
+
+/**
+ * Returns a tentatively-taken left-discard tile to its pile when the player
+ * couldn't open with it. Reverts to the draw phase so they draw from the deck.
+ */
+export async function returnTake(lobbyId: string, uid: string): Promise<void> {
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const handRef = doc(gameRef, 'hands', uid);
+
+  await runTransaction(db, async (tx) => {
+    const [gameSnap, handSnap] = await Promise.all([
+      tx.get(gameRef),
+      tx.get(handRef),
+    ]);
+    if (!gameSnap.exists() || !handSnap.exists()) {
+      throw new GameActionError('missing');
+    }
+
+    const game = gameSnap.data() as GameState;
+    if (game.playerOrder[game.turnIndex] !== uid) {
+      throw new GameActionError('not-your-turn');
+    }
+    const pending = game.pendingTake;
+    if (!pending || pending.uid !== uid) {
+      throw new GameActionError('no-pending-take');
+    }
+
+    const handTiles = (handSnap.data() as PlayerHand).tiles;
+    const index = handTiles.findIndex((t) => t.id === pending.tile.id);
+    if (index < 0) throw new GameActionError('tile-not-in-hand');
+    const newHand = [
+      ...handTiles.slice(0, index),
+      ...handTiles.slice(index + 1),
+    ];
+
+    const pile = game.discards[pending.fromSeat] ?? [];
+
+    tx.update(handRef, { tiles: newHand });
+    tx.update(gameRef, {
+      [`discards.${pending.fromSeat}`]: [...pile, pending.tile],
+      [`handCounts.${uid}`]: newHand.length,
+      [`handValue.${uid}`]:
+        (game.handValue?.[uid] ?? 0) - tileValue(pending.tile.face, game.okey),
+      turnPhase: 'draw',
+      pendingTake: deleteField(),
+    });
+    tx.set(doc(collection(gameRef, 'moves')), {
+      type: 'return',
+      by: uid,
+      at: serverTimestamp(),
+      tile: pending.tile.face,
     });
   });
 }
@@ -674,6 +752,10 @@ export async function discardTile(
       throw new GameActionError('not-your-turn');
     }
     if (game.turnPhase !== 'discard') throw new GameActionError('wrong-phase');
+    // A tentatively-taken left tile must be opened or returned first.
+    if (game.pendingTake?.uid === uid) {
+      throw new GameActionError('must-resolve-take');
+    }
 
     const handTiles = (handSnap.data() as PlayerHand).tiles;
     const index = handTiles.findIndex((tile) => tile.id === tileId);
@@ -806,6 +888,7 @@ export async function advanceRound(lobbyId: string): Promise<void> {
     melds: [],
     roundResult: deleteField(),
     winner: deleteField(),
+    pendingTake: deleteField(),
   });
   result.hands.forEach((hand, seat) => {
     batch.set(doc(gameRef, 'hands', playerOrder[seat]), { tiles: hand });

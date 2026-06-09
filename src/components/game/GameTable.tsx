@@ -43,6 +43,10 @@ interface GameTableProps {
   myOpenType: 'meld' | 'pair' | null;
   /** Whether a pairs area exists on the table (someone opened with pairs). */
   pairsAreaExists: boolean;
+  /** Whether the player holds a tentatively-taken left tile (open or return it). */
+  hasPendingTake: boolean;
+  /** Id of that tentatively-taken tile (highlighted on the rack), if any. */
+  pendingTileId?: string;
   /** Melds laid on the table. */
   melds: TableMeld[];
   /** Whether the player may process (işle) tiles onto table melds now. */
@@ -54,6 +58,7 @@ interface GameTableProps {
   onTakeDiscard: () => void;
   onOpen: (groups: TileModel[][]) => void;
   onLayPairs: (groups: TileModel[][]) => void;
+  onReturnTake: () => void;
   onProcess: (meldId: string, tileId: string) => void;
   onAutoProcess: () => void;
 }
@@ -83,6 +88,8 @@ export function GameTable({
   hasOpened,
   myOpenType,
   pairsAreaExists,
+  hasPendingTake,
+  pendingTileId,
   melds,
   canProcess,
   assisted,
@@ -91,6 +98,7 @@ export function GameTable({
   onTakeDiscard,
   onOpen,
   onLayPairs,
+  onReturnTake,
   onProcess,
   onAutoProcess,
 }: GameTableProps) {
@@ -169,6 +177,13 @@ export function GameTable({
   // by the player's own drag, so they aren't animated here.
   const [flights, setFlights] = useState<Flight[]>([]);
   const flightKeyRef = useRef(0);
+  // Returning a tentative take grows the left pile; suppress the false
+  // "left player discarded" animation that change would otherwise trigger.
+  const returningRef = useRef(false);
+  const handleReturn = () => {
+    returningRef.current = true;
+    onReturnTake();
+  };
   const prevRef = useRef<{
     handCounts: Record<string, number>;
     discards: Record<string, TileModel[]>;
@@ -206,6 +221,11 @@ export function GameTable({
 
       // Discard: a pile grew — fly from the thrower's seat to the pile.
       if (len > prevLen) {
+        // A returned tentative take also grows a pile — don't animate it.
+        if (returningRef.current) {
+          returningRef.current = false;
+          continue;
+        }
         const thrower = playerOrder[seatIndex];
         const face = discards[seatKey][len - 1]?.face;
         const from = thrower ? centerOf(seatSelector(thrower)) : null;
@@ -350,7 +370,10 @@ export function GameTable({
         </div>
         <div
           data-pile={(myIndex + 3) % count}
-          className="absolute left-[20%] top-[80%] -translate-x-1/2 -translate-y-1/2"
+          data-return-target
+          className={`absolute left-[20%] top-[80%] -translate-x-1/2 -translate-y-1/2 rounded-md ${
+            hasPendingTake ? 'ring-2 ring-amber-300' : ''
+          }`}
         >
           <DiscardPile
             tiles={leftPile}
@@ -459,11 +482,13 @@ export function GameTable({
             isMyTurn ? 'font-semibold text-amber-300' : 'text-stone-300'
           }`}
         >
-          {isMyTurn
-            ? canDiscard
-              ? 'Sıra sende — bir taşı sağ köşeye sürükleyip at'
-              : 'Sıra sende'
-            : `Sıra: ${nameOf(currentTurnUid)}`}
+          {!isMyTurn
+            ? `Sıra: ${nameOf(currentTurnUid)}`
+            : hasPendingTake
+              ? 'Soldan taş aldın — aç ya da geri bırak'
+              : canDiscard
+                ? 'Sıra sende — bir taşı sağ köşeye sürükleyip at'
+                : 'Sıra sende'}
         </span>
         <div className="flex items-end justify-center gap-3">
           <Rack
@@ -475,6 +500,8 @@ export function GameTable({
             canProcess={canProcess}
             onProcess={onProcess}
             processableIds={processableIds}
+            {...(pendingTileId ? { highlightTileId: pendingTileId } : {})}
+            onReturn={handleReturn}
             onArrange={setCurrentGroups}
             incomingSlot={pendingSlot}
             onIncomingPlaced={() => setPendingSlot(null)}
@@ -536,6 +563,17 @@ export function GameTable({
                 className="rounded-md border border-amber-400 px-3 py-1.5 text-sm font-medium text-amber-200 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Otomatik İşle
+              </button>
+            )}
+
+            {/* Returning a tentatively-taken left tile (when you can't open). */}
+            {hasPendingTake && (
+              <button
+                type="button"
+                onClick={handleReturn}
+                className="rounded-md border border-red-400 px-3 py-1.5 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/15"
+              >
+                Geri Bırak
               </button>
             )}
 

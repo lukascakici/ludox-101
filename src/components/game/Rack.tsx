@@ -39,6 +39,10 @@ interface RackProps {
   onProcess?: (meldId: string, tileId: string) => void;
   /** Ids of hand tiles that can be processed onto a table meld (show a marker). */
   processableIds?: Set<string>;
+  /** Id of a tentatively-taken tile to highlight + allow returning by drag. */
+  highlightTileId?: string;
+  /** Called when the highlighted tile is dragged onto the return target. */
+  onReturn?: () => void;
   /** Reports the rack's contiguous groups (per row) whenever they change. */
   onArrange?: (groups: TileModel[][]) => void;
 }
@@ -131,6 +135,8 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
     canProcess = false,
     onProcess,
     processableIds,
+    highlightTileId,
+    onReturn,
     onArrange,
   },
   ref,
@@ -158,6 +164,10 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
   canProcessRef.current = canProcess;
   const onProcessRef = useRef(onProcess);
   onProcessRef.current = onProcess;
+  const highlightTileIdRef = useRef(highlightTileId);
+  highlightTileIdRef.current = highlightTileId;
+  const onReturnRef = useRef(onReturn);
+  onReturnRef.current = onReturn;
   const onArrangeRef = useRef(onArrange);
   onArrangeRef.current = onArrange;
 
@@ -265,6 +275,18 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
           }
         }
 
+        // Dropped on the return target (left pile) while holding the tentative
+        // take -> put it back. Only the highlighted (borrowed) tile qualifies.
+        if (
+          element?.closest('[data-return-target]') &&
+          active.tile.id === highlightTileIdRef.current &&
+          onReturnRef.current
+        ) {
+          onReturnRef.current();
+          setDrag(null);
+          return;
+        }
+
         // Dropped on your own discard pile -> discard the tile.
         if (
           element?.closest('[data-discard-target]') &&
@@ -334,7 +356,13 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
                       key={slotIndex}
                       data-slot-index={slotIndex}
                       onPointerDown={(e) => handlePointerDown(e, slotIndex)}
-                      className={`relative ${filled ? 'cursor-grab touch-none' : ''}`}
+                      className={`relative rounded-md ${
+                        filled ? 'cursor-grab touch-none' : ''
+                      } ${
+                        tile && tile.id === highlightTileId
+                          ? 'ring-2 ring-amber-300 ring-offset-1 ring-offset-amber-900'
+                          : ''
+                      }`}
                     >
                       {filled ? (
                         <Tile

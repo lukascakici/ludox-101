@@ -276,6 +276,7 @@ export async function devRedeal(lobbyId: string): Promise<void> {
     melds: [],
     roundResult: deleteField(),
     winner: deleteField(),
+    pendingTake: deleteField(),
   });
   result.hands.forEach((hand, seat) => {
     batch.set(doc(gameRef, 'hands', playerOrder[seat]), { tiles: hand });
