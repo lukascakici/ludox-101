@@ -19,6 +19,7 @@ import {
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
+import { DevPanel } from '@/components/game/DevPanel';
 import { RotateDevicePrompt } from '@/components/game/RotateDevicePrompt';
 import type { Lobby } from '@/types/lobby';
 import type { GameState } from '@/types/game';
@@ -333,6 +334,8 @@ export function GamePage() {
         onAutoProcess={handleAutoProcess}
       />
       <RotateDevicePrompt />
+
+      {uid && <DevPanel lobbyId={lobby.id} uid={uid} />}
 
       {openError && (
         <div className="fixed left-1/2 top-12 z-40 -translate-x-1/2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
