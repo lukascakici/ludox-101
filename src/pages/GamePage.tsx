@@ -5,6 +5,7 @@ import {
   subscribeToLobby,
 } from '@/services/firebase/lobbyService';
 import {
+  advanceRound,
   autoProcess,
   discardTile,
   drawFromDeck,
@@ -17,6 +18,7 @@ import {
   takeFromDiscard,
 } from '@/services/firebase/gameService';
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
+import { lowestScorer } from '@/game/scoring';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
 import { DevPanel } from '@/components/game/DevPanel';
@@ -115,16 +117,16 @@ export function GamePage() {
     return () => clearTimeout(timer);
   }, [openError]);
 
-  // When the hand ends, the host returns the lobby to waiting so it's reusable
-  // and everyone can leave cleanly.
+  // When the whole MATCH ends, the host returns the lobby to waiting so it's
+  // reusable and everyone can leave cleanly. (Between rounds the lobby stays in
+  // progress — the host starts the next round from the scoreboard.)
   const resetDoneRef = useRef(false);
   useEffect(() => {
     if (!id || !game || !lobby) return;
-    if (
+    const matchOver =
       game.status === 'finished' &&
-      uid === lobby.hostId &&
-      !resetDoneRef.current
-    ) {
+      (game.roundsPlayed ?? 0) >= lobby.settings.matchFormat.roundsPerSet;
+    if (matchOver && uid === lobby.hostId && !resetDoneRef.current) {
       resetDoneRef.current = true;
       resetLobbyToWaiting(id).catch((err) =>
         console.error('resetLobbyToWaiting failed:', err),
@@ -172,6 +174,14 @@ export function GamePage() {
   const myOpenType =
     uid != null ? ((game.openedWith ?? {})[uid] ?? null) : null;
   const pairsAreaExists = tableMelds.some((meld) => meld.kind === 'pair');
+
+  // Match/round progression (Stage 1: a flat set of roundsPerSet rounds).
+  const roundsPerSet = lobby.settings.matchFormat.roundsPerSet;
+  const roundsPlayed = game.roundsPlayed ?? 0;
+  const matchOver = game.status === 'finished' && roundsPlayed >= roundsPerSet;
+  const isHost = uid === lobby.hostId;
+  const nameFor = (playerUid: string | undefined) =>
+    lobby.players.find((p) => p.uid === playerUid)?.displayName ?? 'Oyuncu';
   // You can lay melds on any of your discard-phase turns: the first lay must
   // reach 101 (handled below), later ones may add any valid melds.
   const canOpen = isMyTurn && game.turnPhase === 'discard';
@@ -303,6 +313,15 @@ export function GamePage() {
     }
   }
 
+  async function handleNextRound() {
+    if (!id) return;
+    try {
+      await advanceRound(id);
+    } catch (err) {
+      console.error('advanceRound failed:', err);
+    }
+  }
+
   return (
     <>
       <GameTable
@@ -344,22 +363,88 @@ export function GamePage() {
       )}
 
       {game.status === 'finished' && (
-        <div className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-black/60 text-stone-100">
-          <p className="text-lg font-semibold">Oyun bitti</p>
-          <p className="text-sm text-stone-300">
-            {game.winner
-              ? `${
-                  lobby.players.find((p) => p.uid === game.winner)?.displayName ??
-                  'Bir oyuncu'
-                } kazandı!`
-              : 'Deste tükendi.'}
-          </p>
-          <Link
-            to={`/lobby/${lobby.id}`}
-            className="mt-2 rounded-md bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
-          >
-            Lobiye dön
-          </Link>
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-stone-100/15 bg-felt-900 p-5 text-stone-100 shadow-2xl">
+            <h2 className="text-center text-lg font-semibold">
+              {matchOver ? 'Maç bitti' : 'El bitti'}
+            </h2>
+            <p className="mt-1 text-center text-sm text-stone-300">
+              {game.roundResult?.reason === 'finish'
+                ? `${nameFor(game.roundResult.winner)} eli kapattı${
+                    game.roundResult.doubled ? ' · ×2' : ''
+                  }`
+                : 'Deste tükendi'}
+            </p>
+
+            <div className="mt-4 space-y-1">
+              <div className="flex items-center justify-between px-2 text-[11px] uppercase tracking-wide text-stone-400">
+                <span>Oyuncu</span>
+                <span className="flex gap-3">
+                  <span className="w-12 text-right">Bu el</span>
+                  <span className="w-12 text-right">Toplam</span>
+                </span>
+              </div>
+              {[...game.playerOrder]
+                .sort(
+                  (a, b) => (game.scores?.[a] ?? 0) - (game.scores?.[b] ?? 0),
+                )
+                .map((playerUid) => {
+                  const delta = game.roundResult?.delta[playerUid];
+                  const total = game.scores?.[playerUid] ?? 0;
+                  return (
+                    <div
+                      key={playerUid}
+                      className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm ${
+                        playerUid === uid ? 'bg-white/10' : ''
+                      }`}
+                    >
+                      <span className="truncate">{nameFor(playerUid)}</span>
+                      <span className="flex gap-3 tabular-nums">
+                        <span className="w-12 text-right text-stone-400">
+                          {delta == null
+                            ? '–'
+                            : delta > 0
+                              ? `+${delta}`
+                              : delta}
+                        </span>
+                        <span className="w-12 text-right font-semibold">
+                          {total}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {matchOver ? (
+              <>
+                <p className="mt-4 text-center text-sm">
+                  Kazanan:{' '}
+                  <span className="font-semibold text-amber-300">
+                    {nameFor(lowestScorer(game.playerOrder, game.scores ?? {}))}
+                  </span>
+                </p>
+                <Link
+                  to={`/lobby/${lobby.id}`}
+                  className="mt-3 block rounded-md bg-zinc-100 px-4 py-2 text-center text-sm font-semibold text-zinc-900 hover:bg-white"
+                >
+                  Lobiye dön
+                </Link>
+              </>
+            ) : isHost ? (
+              <button
+                type="button"
+                onClick={handleNextRound}
+                className="mt-4 w-full rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400"
+              >
+                Sonraki tur ({roundsPlayed}/{roundsPerSet})
+              </button>
+            ) : (
+              <p className="mt-4 text-center text-sm text-stone-400">
+                Sonraki turu kurucu başlatacak…
+              </p>
+            )}
+          </div>
         </div>
       )}
     </>

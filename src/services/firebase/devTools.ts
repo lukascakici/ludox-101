@@ -17,6 +17,7 @@ import { db } from './config';
 import { classifyMeld } from '@/game/melds';
 import { deal } from '@/game/deal';
 import { computeOkey } from '@/game/okey';
+import { handValueOf, tileValue } from '@/game/scoring';
 import {
   buildTileSet,
   shuffle,
@@ -141,14 +142,20 @@ export async function devSetMyTurn(lobbyId: string, uid: string): Promise<void> 
   });
 }
 
-/** Marks you as already opened (with melds), to test işleme directly. */
+/**
+ * Marks you as already opened, to test işleme directly. The kind matters:
+ * a 'pair' opener may NOT lay new melds (only işle onto existing ones), a 'meld'
+ * opener may lay melds. (The old single 'Beni aç' always marked 'meld', which is
+ * why a "pair opener" could still lay a per while testing.)
+ */
 export async function devMarkOpened(
   lobbyId: string,
   uid: string,
+  kind: 'meld' | 'pair' = 'meld',
 ): Promise<void> {
   await updateDoc(doc(db, GAMES_COLLECTION, lobbyId), {
     [`opened.${uid}`]: true,
-    [`openedWith.${uid}`]: 'meld',
+    [`openedWith.${uid}`]: kind,
   });
 }
 
@@ -174,6 +181,7 @@ export async function devGiveHand(
   await updateDoc(handRef, { tiles });
   await updateDoc(gameRef, {
     [`handCounts.${uid}`]: tiles.length,
+    [`handValue.${uid}`]: handValueOf(tiles, game.okey),
     turnIndex: seat,
     turnPhase: 'discard',
     ...(kind === 'finish'
@@ -215,7 +223,11 @@ export async function devAddProcessableTile(
 
   const tiles = [...(handSnap.data() as PlayerHand).tiles, devTile(face, uid)];
   await updateDoc(handRef, { tiles });
-  await updateDoc(gameRef, { [`handCounts.${uid}`]: tiles.length });
+  await updateDoc(gameRef, {
+    [`handCounts.${uid}`]: tiles.length,
+    [`handValue.${uid}`]:
+      (game.handValue?.[uid] ?? 0) + tileValue(face, game.okey),
+  });
 }
 
 /**
@@ -231,8 +243,12 @@ export async function devRedeal(lobbyId: string): Promise<void> {
   const okey = computeOkey(result.indicator.face);
 
   const handCounts: Record<string, number> = {};
+  const handValue: Record<string, number> = {};
+  const scores: Record<string, number> = {};
   playerOrder.forEach((uid, seat) => {
     handCounts[uid] = result.hands[seat]?.length ?? 0;
+    handValue[uid] = handValueOf(result.hands[seat] ?? [], okey);
+    scores[uid] = 0;
   });
   const discards: Record<string, Tile[]> = {};
   for (let seat = 0; seat < playerOrder.length; seat++) {
@@ -251,9 +267,14 @@ export async function devRedeal(lobbyId: string): Promise<void> {
     drawCount: result.drawPile.length,
     discards,
     handCounts,
+    handValue,
+    // Dev re-deal starts a fresh match: clear scores and round count too.
+    scores,
+    roundsPlayed: 0,
     opened: {},
     openedWith: {},
     melds: [],
+    roundResult: deleteField(),
     winner: deleteField(),
   });
   result.hands.forEach((hand, seat) => {
@@ -282,6 +303,7 @@ export async function devRandomHand(
   await updateDoc(doc(gameRef, 'hands', uid), { tiles });
   await updateDoc(gameRef, {
     [`handCounts.${uid}`]: tiles.length,
+    [`handValue.${uid}`]: handValueOf(tiles, game.okey),
     turnIndex: seat,
     turnPhase: 'discard',
   });

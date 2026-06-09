@@ -362,17 +362,20 @@ export function GameTable({
         {/* Center: the opening area (where melds will be laid) + deck/indicator.
             The container is click-through so corner piles stay droppable; only
             the deck re-enables pointer events. */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-16">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-32">
           <div
             data-open-area
-            className="pointer-events-auto flex h-44 max-w-3xl flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"
+            className="pointer-events-auto flex h-[58%] min-h-44 max-h-72 max-w-4xl flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"
           >
-            {/* Perler (runs/groups) */}
-            <div className="flex min-w-0 flex-1 flex-col">
+            {/* Perler (runs/groups) — width grows with how many melds it holds. */}
+            <div
+              className="flex min-w-0 basis-0 flex-col"
+              style={{ flexGrow: Math.max(meldMelds.length, 1) }}
+            >
               <span className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
                 Perler
               </span>
-              <div className="flex flex-1 flex-wrap content-start gap-2 overflow-auto">
+              <div className="flex flex-1 flex-wrap content-start gap-1.5 overflow-hidden">
                 {meldMelds.length === 0 ? (
                   <span className="m-auto text-xs text-stone-500">
                     Henüz per yok
@@ -383,10 +386,8 @@ export function GameTable({
                       key={meld.id}
                       data-meld-id={meld.id}
                       data-meld-anim={meld.id}
-                      className={`flex h-fit gap-0.5 rounded-md bg-black/25 p-1 ring-1 ${
-                        canProcess
-                          ? 'ring-amber-400/60'
-                          : 'ring-black/30'
+                      className={`flex h-fit gap-0.5 rounded-md bg-black/25 p-0.5 ring-1 ${
+                        canProcess ? 'ring-amber-400/60' : 'ring-black/30'
                       }`}
                     >
                       {meld.tiles.map((tile, index) => (
@@ -394,6 +395,7 @@ export function GameTable({
                           key={index}
                           tile={tile.face}
                           asOkey={isOkeyTile(tile.face, okey)}
+                          size="sm"
                         />
                       ))}
                     </div>
@@ -405,12 +407,15 @@ export function GameTable({
             {/* Divider */}
             <div className="w-px shrink-0 self-stretch bg-stone-100/15" />
 
-            {/* Çiftler (pairs) */}
-            <div className="flex w-44 shrink-0 flex-col">
+            {/* Çiftler (pairs) — width grows with how many pairs it holds. */}
+            <div
+              className="flex min-w-0 basis-0 flex-col"
+              style={{ flexGrow: Math.max(pairMelds.length, 1) }}
+            >
               <span className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
                 Çiftler
               </span>
-              <div className="flex flex-1 flex-wrap content-start gap-1.5 overflow-auto">
+              <div className="flex flex-1 flex-wrap content-start gap-1 overflow-hidden">
                 {pairMelds.length === 0 ? (
                   <span className="m-auto text-xs text-stone-500">
                     Henüz çift yok
@@ -420,13 +425,14 @@ export function GameTable({
                     <div
                       key={meld.id}
                       data-meld-anim={meld.id}
-                      className="flex h-fit gap-0.5 rounded-md bg-black/25 p-1 ring-1 ring-black/30"
+                      className="flex h-fit gap-0.5 rounded-md bg-black/25 p-0.5 ring-1 ring-black/30"
                     >
                       {meld.tiles.map((tile, index) => (
                         <Tile
                           key={index}
                           tile={tile.face}
                           asOkey={isOkeyTile(tile.face, okey)}
+                          size="sm"
                         />
                       ))}
                     </div>
@@ -435,7 +441,7 @@ export function GameTable({
               </div>
             </div>
           </div>
-          <div className="pointer-events-auto">
+          <div className="pointer-events-auto self-center">
             <BoardCenter
               indicator={indicator}
               drawPileCount={drawPileCount}

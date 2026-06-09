@@ -55,7 +55,12 @@ export function DevPanel({ lobbyId, uid }: DevPanelProps) {
           <Btn onClick={give('finish')}>Bitir (1 taş)</Btn>
 
           <Label>Masa kur</Label>
-          <Btn onClick={run(() => devMarkOpened(lobbyId, uid))}>Beni aç</Btn>
+          <Btn onClick={run(() => devMarkOpened(lobbyId, uid, 'meld'))}>
+            Beni aç (per)
+          </Btn>
+          <Btn onClick={run(() => devMarkOpened(lobbyId, uid, 'pair'))}>
+            Beni aç (çift)
+          </Btn>
           <Btn onClick={run(() => devBotOpen(lobbyId, uid, 'meld'))}>
             Bot per açsın
           </Btn>

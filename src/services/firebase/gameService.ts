@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   onSnapshot,
@@ -10,11 +11,17 @@ import {
 } from 'firebase/firestore';
 import { db } from './config';
 import { deal } from '@/game/deal';
-import { computeOkey } from '@/game/okey';
+import { computeOkey, isOkeyTile } from '@/game/okey';
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import { orderMeld } from '@/game/arrange';
+import { handValueOf, scoreRound, tileValue } from '@/game/scoring';
 import { LobbyStatus, type Lobby, type LobbyPlayer } from '@/types/lobby';
-import type { GameState, PlayerHand, TableMeld } from '@/types/game';
+import type {
+  GameState,
+  PlayerHand,
+  RoundResult,
+  TableMeld,
+} from '@/types/game';
 import type { Tile } from '@/game/tiles';
 
 const GAMES_COLLECTION = 'games';
@@ -33,8 +40,12 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
   const okey = computeOkey(result.indicator.face);
 
   const handCounts: Record<string, number> = {};
+  const handValue: Record<string, number> = {};
+  const scores: Record<string, number> = {};
   playerOrder.forEach((uid, seat) => {
     handCounts[uid] = result.hands[seat]?.length ?? 0;
+    handValue[uid] = handValueOf(result.hands[seat] ?? [], okey);
+    scores[uid] = 0;
   });
 
   const discards: Record<string, Tile[]> = {};
@@ -53,6 +64,9 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     drawCount: result.drawPile.length,
     discards,
     handCounts,
+    handValue,
+    scores,
+    roundsPlayed: 0,
     opened: {},
     openedWith: {},
     melds: [],
@@ -112,8 +126,12 @@ export async function startSoloTestGame(
   const okey = computeOkey(result.indicator.face);
 
   const handCounts: Record<string, number> = {};
+  const handValue: Record<string, number> = {};
+  const scores: Record<string, number> = {};
   playerOrder.forEach((uid, seat) => {
     handCounts[uid] = result.hands[seat]?.length ?? 0;
+    handValue[uid] = handValueOf(result.hands[seat] ?? [], okey);
+    scores[uid] = 0;
   });
   const discards: Record<string, Tile[]> = {};
   for (let seat = 0; seat < playerOrder.length; seat++) {
@@ -131,6 +149,9 @@ export async function startSoloTestGame(
     drawCount: result.drawPile.length,
     discards,
     handCounts,
+    handValue,
+    scores,
+    roundsPlayed: 0,
     opened: {},
     openedWith: {},
     melds: [],
@@ -258,6 +279,7 @@ export async function openMelds(
     }
     if (remaining.length < 1) throw new GameActionError('must-keep-tile');
 
+    const laidValue = handValueOf(groups.flat(), game.okey);
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
       melds: [...existingMelds, ...tableMelds],
@@ -265,6 +287,7 @@ export async function openMelds(
       // Record the opening kind only on the FIRST open (don't overwrite later).
       ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'meld' }),
       [`handCounts.${uid}`]: remaining.length,
+      [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'open',
@@ -340,6 +363,7 @@ export async function layPairs(
     }
     if (remaining.length < 1) throw new GameActionError('must-keep-tile');
 
+    const laidValue = handValueOf(groups.flat(), game.okey);
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
       melds: [...existingMelds, ...pairMelds],
@@ -347,6 +371,7 @@ export async function layPairs(
       // Record 'pair' only when this lay is the player's first opening.
       ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'pair' }),
       [`handCounts.${uid}`]: remaining.length,
+      [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'open',
@@ -418,6 +443,8 @@ export async function processTile(
     tx.update(gameRef, {
       melds: newMelds,
       [`handCounts.${uid}`]: remaining.length,
+      [`handValue.${uid}`]:
+        (game.handValue?.[uid] ?? 0) - tileValue(tile.face, game.okey),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'process',
@@ -555,6 +582,8 @@ export async function drawFromDeck(lobbyId: string, uid: string): Promise<void> 
     tx.update(gameRef, {
       drawCount: remaining.length,
       [`handCounts.${uid}`]: newHand.length,
+      [`handValue.${uid}`]:
+        (game.handValue?.[uid] ?? 0) + tileValue(drawn.face, game.okey),
       turnPhase: 'discard',
     });
     tx.set(doc(collection(gameRef, 'moves')), {
@@ -606,6 +635,8 @@ export async function takeFromDiscard(
     tx.update(gameRef, {
       [`discards.${leftSeat}`]: pile.slice(0, -1),
       [`handCounts.${uid}`]: newHand.length,
+      [`handValue.${uid}`]:
+        (game.handValue?.[uid] ?? 0) + tileValue(taken.face, game.okey),
       turnPhase: 'discard',
     });
     tx.set(doc(collection(gameRef, 'moves')), {
@@ -658,20 +689,69 @@ export async function discardTile(
     const pile = game.discards[seat] ?? [];
     const nextTurn = (game.turnIndex + 1) % game.playerOrder.length;
 
+    // Held value after this discard (used to score the round if it ends here).
+    const myNewValue =
+      (game.handValue?.[uid] ?? 0) - tileValue(tile.face, game.okey);
+    const postValue: Record<string, number> = {
+      ...(game.handValue ?? {}),
+      [uid]: myNewValue,
+    };
+
     // Finishing (el bitirme): discarding the last tile after having opened wins.
     const won = newHand.length === 0 && (game.opened ?? {})[uid] === true;
     // Otherwise, if the deck is exhausted, this discard ends the hand (no winner).
     const deckExhausted = game.drawCount === 0;
 
+    // When the round ends, score it and fold the result into the match totals.
+    let endUpdate: Record<
+      string,
+      string | number | RoundResult | Record<string, number>
+    > = {
+      turnIndex: nextTurn,
+      turnPhase: 'draw',
+    };
+    if (won || deckExhausted) {
+      // A special finish (closing on the okey, or finishing a pairs hand)
+      // doubles EVERY player. (A pair opener's own score also doubles — handled
+      // per-player inside scoreRound via openedWith.)
+      const globalDouble =
+        won &&
+        ((game.openedWith ?? {})[uid] === 'pair' ||
+          isOkeyTile(tile.face, game.okey));
+      const delta = scoreRound({
+        playerOrder: game.playerOrder,
+        opened: game.opened ?? {},
+        openedWith: game.openedWith ?? {},
+        handValue: postValue,
+        globalDouble,
+        ...(won ? { winner: uid } : {}),
+      });
+      const totals: Record<string, number> = {};
+      for (const player of game.playerOrder) {
+        totals[player] = (game.scores?.[player] ?? 0) + (delta[player] ?? 0);
+      }
+      const roundResult: RoundResult = {
+        delta,
+        totals,
+        reason: won ? 'finish' : 'deck',
+        doubled: globalDouble,
+        ...(won ? { winner: uid } : {}),
+      };
+      endUpdate = {
+        status: 'finished',
+        scores: totals,
+        roundsPlayed: (game.roundsPlayed ?? 0) + 1,
+        roundResult,
+        ...(won ? { winner: uid } : {}),
+      };
+    }
+
     tx.update(handRef, { tiles: newHand });
     tx.update(gameRef, {
       [`discards.${seat}`]: [...pile, tile],
       [`handCounts.${uid}`]: newHand.length,
-      ...(won
-        ? { status: 'finished', winner: uid }
-        : deckExhausted
-          ? { status: 'finished' }
-          : { turnIndex: nextTurn, turnPhase: 'draw' }),
+      [`handValue.${uid}`]: myNewValue,
+      ...endUpdate,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'discard',
@@ -680,6 +760,58 @@ export async function discardTile(
       tile: tile.face,
     });
   });
+}
+
+/**
+ * Starts the next round (el) of the match: re-deals from a fresh shuffle, resets
+ * the table (melds, opens, discards, hands, deck, indicator), and rotates to a
+ * new starter — while PRESERVING the cumulative match scores and roundsPlayed.
+ * Called by the host from the between-rounds scoreboard.
+ */
+export async function advanceRound(lobbyId: string): Promise<void> {
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const snapshot = await getDoc(gameRef);
+  if (!snapshot.exists()) return;
+  const game = snapshot.data() as GameState;
+  const playerOrder = game.playerOrder;
+
+  const result = deal();
+  const okey = computeOkey(result.indicator.face);
+
+  const handCounts: Record<string, number> = {};
+  const handValue: Record<string, number> = {};
+  playerOrder.forEach((uid, seat) => {
+    handCounts[uid] = result.hands[seat]?.length ?? 0;
+    handValue[uid] = handValueOf(result.hands[seat] ?? [], okey);
+  });
+  const discards: Record<string, Tile[]> = {};
+  for (let seat = 0; seat < playerOrder.length; seat++) {
+    discards[String(seat)] = [];
+  }
+
+  const batch = writeBatch(db);
+  batch.update(gameRef, {
+    status: 'playing',
+    starterIndex: result.starterIndex,
+    turnIndex: result.starterIndex,
+    turnPhase: 'discard',
+    indicator: result.indicator.face,
+    okey,
+    drawCount: result.drawPile.length,
+    discards,
+    handCounts,
+    handValue,
+    opened: {},
+    openedWith: {},
+    melds: [],
+    roundResult: deleteField(),
+    winner: deleteField(),
+  });
+  result.hands.forEach((hand, seat) => {
+    batch.set(doc(gameRef, 'hands', playerOrder[seat]), { tiles: hand });
+  });
+  batch.set(doc(gameRef, 'private', 'deck'), { tiles: result.drawPile });
+  await batch.commit();
 }
 
 /** Subscribes to the current player's private hand (only they can read it). */

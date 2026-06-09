@@ -11,6 +11,20 @@ export interface TableMeld {
   tiles: Tile[];
 }
 
+/** The outcome of one finished round, kept for the between-rounds scoreboard. */
+export interface RoundResult {
+  /** This round's penalty points per player. */
+  delta: Record<string, number>;
+  /** Cumulative match totals after this round. */
+  totals: Record<string, number>;
+  /** The finisher uid, or absent for a deck-exhausted end. */
+  winner?: string;
+  /** Why the round ended. */
+  reason: 'finish' | 'deck';
+  /** Whether a special finish doubled the round. */
+  doubled: boolean;
+}
+
 /** A turn has two phases: first draw a tile, then discard one. */
 export type TurnPhase = 'draw' | 'discard';
 
@@ -36,6 +50,17 @@ export interface GameState {
   discards: Record<string, Tile[]>;
   /** Tile count per player uid (public, so opponents' counts are visible). */
   handCounts: Record<string, number>;
+  /**
+   * Held-tile value per player (public), maintained as tiles move so the round
+   * can be scored at the end without reading anyone's private hand.
+   */
+  handValue: Record<string, number>;
+  /** Cumulative match penalty per player (lower is better). */
+  scores: Record<string, number>;
+  /** Number of rounds (eller) completed in this match. */
+  roundsPlayed: number;
+  /** The most recently finished round's result (shown between rounds). */
+  roundResult?: RoundResult;
   /** Whether each player has made their opening meld. */
   opened: Record<string, boolean>;
   /**
