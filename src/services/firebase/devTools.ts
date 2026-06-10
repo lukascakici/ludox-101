@@ -268,9 +268,11 @@ export async function devRedeal(lobbyId: string): Promise<void> {
     discards,
     handCounts,
     handValue,
-    // Dev re-deal starts a fresh match: clear scores and round count too.
+    // Dev re-deal starts a fresh match: clear scores, set/round progress too.
     scores,
     roundsPlayed: 0,
+    setIndex: 0,
+    setsWon: {},
     opened: {},
     openedWith: {},
     melds: [],

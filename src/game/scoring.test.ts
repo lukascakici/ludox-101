@@ -3,8 +3,11 @@ import {
   FINISH_BONUS,
   handValueOf,
   lowestScorer,
+  matchLeader,
   NOT_OPENED_PENALTY,
   scoreRound,
+  setMajority,
+  setWinnerOf,
   tileValue,
 } from './scoring';
 import { computeOkey } from './okey';
@@ -106,5 +109,26 @@ describe('scoreRound', () => {
 describe('lowestScorer', () => {
   it('returns the uid with the lowest total', () => {
     expect(lowestScorer(['a', 'b', 'c'], { a: 50, b: -10, c: 30 })).toBe('b');
+  });
+});
+
+describe('set / match progression', () => {
+  it('setMajority needs a strict majority of sets', () => {
+    expect(setMajority(1)).toBe(1);
+    expect(setMajority(3)).toBe(2);
+    expect(setMajority(5)).toBe(3);
+    expect(setMajority(7)).toBe(4);
+  });
+
+  it('setWinnerOf picks the side with the lowest set total', () => {
+    // Solo: each player is a side.
+    expect(setWinnerOf(['a', 'b', 'c', 'd'], { a: 90, b: 12, c: 50, d: 70 })).toBe('b');
+    // Paired: the two teams are the sides (totals combined per team).
+    expect(setWinnerOf(['0', '1'], { '0': -40, '1': 120 })).toBe('0');
+  });
+
+  it('matchLeader picks the side with the most sets won', () => {
+    expect(matchLeader(['0', '1'], { '0': 2, '1': 1 })).toBe('0');
+    expect(matchLeader(['a', 'b', 'c', 'd'], { a: 0, c: 3, d: 1 })).toBe('c');
   });
 });

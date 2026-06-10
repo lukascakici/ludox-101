@@ -15,7 +15,7 @@ export interface TableMeld {
 export interface RoundResult {
   /** This round's penalty points per player. */
   delta: Record<string, number>;
-  /** Cumulative match totals after this round. */
+  /** Running set totals after this round (per player; reset each set). */
   totals: Record<string, number>;
   /** The finisher uid, or absent for a deck-exhausted end. */
   winner?: string;
@@ -23,6 +23,17 @@ export interface RoundResult {
   reason: 'finish' | 'deck';
   /** Whether a special finish doubled the round. */
   doubled: boolean;
+  /** Whether this round completed the current set. */
+  setComplete?: boolean;
+  /**
+   * The side that won the set (lowest set total): a player uid in solo mode, a
+   * team key ('0' | '1') in paired mode. Present only when `setComplete`.
+   */
+  setWinner?: string;
+  /** Whether this round completed the whole match (someone won a majority of sets). */
+  matchComplete?: boolean;
+  /** The side that won the match. Present only when `matchComplete`. */
+  matchWinner?: string;
 }
 
 /**
@@ -70,10 +81,18 @@ export interface GameState {
    * can be scored at the end without reading anyone's private hand.
    */
   handValue: Record<string, number>;
-  /** Cumulative match penalty per player (lower is better). */
+  /** Running penalty per player for the CURRENT set (lower is better; reset each set). */
   scores: Record<string, number>;
-  /** Number of rounds (eller) completed in this match. */
+  /** Number of rounds (eller) completed in the current set. */
   roundsPlayed: number;
+  /** Rounds (el) per set — from the match format. */
+  roundsPerSet: number;
+  /** Number of sets in the match (bestOf). 1 = flat single set. */
+  bestOf: number;
+  /** Current set index (0-based). */
+  setIndex: number;
+  /** Sets won per side (uid in solo, team key '0'|'1' in paired). */
+  setsWon: Record<string, number>;
   /** The most recently finished round's result (shown between rounds). */
   roundResult?: RoundResult;
   /** Whether each player has made their opening meld. */

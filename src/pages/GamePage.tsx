@@ -6,6 +6,7 @@ import {
 } from '@/services/firebase/lobbyService';
 import {
   advanceRound,
+  advanceSet,
   autoProcess,
   discardTile,
   drawFromDeck,
@@ -20,6 +21,7 @@ import {
 } from '@/services/firebase/gameService';
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import { lowestScorer } from '@/game/scoring';
+import { teamLabels } from '@/constants/lobby';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
 import { DevPanel } from '@/components/game/DevPanel';
@@ -124,10 +126,8 @@ export function GamePage() {
   const resetDoneRef = useRef(false);
   useEffect(() => {
     if (!id || !game || !lobby) return;
-    const matchOver =
-      game.status === 'finished' &&
-      (game.roundsPlayed ?? 0) >= lobby.settings.matchFormat.roundsPerSet;
-    if (matchOver && uid === lobby.hostId && !resetDoneRef.current) {
+    const matchComplete = game.roundResult?.matchComplete === true;
+    if (matchComplete && uid === lobby.hostId && !resetDoneRef.current) {
       resetDoneRef.current = true;
       resetLobbyToWaiting(id).catch((err) =>
         console.error('resetLobbyToWaiting failed:', err),
@@ -179,13 +179,26 @@ export function GamePage() {
     uid != null ? ((game.openedWith ?? {})[uid] ?? null) : null;
   const pairsAreaExists = tableMelds.some((meld) => meld.kind === 'pair');
 
-  // Match/round progression (Stage 1: a flat set of roundsPerSet rounds).
-  const roundsPerSet = lobby.settings.matchFormat.roundsPerSet;
+  // Match/round progression. A set is roundsPerSet rounds; bestOf sets make the
+  // match. The round-end writes setComplete/matchComplete onto roundResult.
+  const roundsPerSet = game.roundsPerSet ?? lobby.settings.matchFormat.roundsPerSet;
   const roundsPlayed = game.roundsPlayed ?? 0;
-  const matchOver = game.status === 'finished' && roundsPlayed >= roundsPerSet;
+  const bestOf = game.bestOf ?? lobby.settings.matchFormat.bestOf;
+  const setIndex = game.setIndex ?? 0;
+  const isSeries = bestOf > 1;
+  const setComplete = game.roundResult?.setComplete === true;
+  const matchOver = game.roundResult?.matchComplete === true;
+  const paired = !!game.teams;
   const isHost = uid === lobby.hostId;
   const nameFor = (playerUid: string | undefined) =>
     lobby.players.find((p) => p.uid === playerUid)?.displayName ?? 'Oyuncu';
+  // A "side" is a player uid in solo, or a team key ('0'|'1') in paired mode.
+  const sideName = (side: string | undefined) =>
+    side == null
+      ? 'Oyuncu'
+      : paired && (side === '0' || side === '1')
+        ? teamLabels[Number(side) as 0 | 1]
+        : nameFor(side);
   // You can lay melds on any of your discard-phase turns: the first lay must
   // reach 101 (handled below), later ones may add any valid melds.
   const canOpen = isMyTurn && game.turnPhase === 'discard';
@@ -326,6 +339,15 @@ export function GamePage() {
     }
   }
 
+  async function handleNextSet() {
+    if (!id) return;
+    try {
+      await advanceSet(id);
+    } catch (err) {
+      console.error('advanceSet failed:', err);
+    }
+  }
+
   async function handleReturnTake() {
     if (!id || !uid) return;
     try {
@@ -384,7 +406,7 @@ export function GamePage() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-sm rounded-xl border border-stone-100/15 bg-felt-900 p-5 text-stone-100 shadow-2xl">
             <h2 className="text-center text-lg font-semibold">
-              {matchOver ? 'Maç bitti' : 'El bitti'}
+              {matchOver ? 'Maç bitti' : setComplete ? 'Set bitti' : 'El bitti'}
             </h2>
             <p className="mt-1 text-center text-sm text-stone-300">
               {game.roundResult?.reason === 'finish'
@@ -393,6 +415,25 @@ export function GamePage() {
                   }`
                 : 'Deste tükendi'}
             </p>
+            {isSeries && (
+              <p className="mt-0.5 text-center text-xs text-stone-400">
+                Set {Math.min(setIndex + 1, bestOf)}/{bestOf}
+              </p>
+            )}
+
+            {/* Set wins tally (only meaningful in a series). */}
+            {isSeries && (
+              <div className="mt-3 flex justify-center gap-4 text-sm">
+                {(paired ? ['0', '1'] : game.playerOrder).map((side) => (
+                  <span key={side} className="text-stone-200">
+                    {sideName(side)}:{' '}
+                    <span className="font-semibold text-amber-300">
+                      {game.setsWon?.[side] ?? 0}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
 
             <div className="mt-4 space-y-1">
               <div className="flex items-center justify-between px-2 text-[11px] uppercase tracking-wide text-stone-400">
@@ -434,12 +475,29 @@ export function GamePage() {
                 })}
             </div>
 
+            {/* Who won the set, when a set just ended mid-match. */}
+            {setComplete && !matchOver && (
+              <p className="mt-4 text-center text-sm">
+                Seti kazanan:{' '}
+                <span className="font-semibold text-amber-300">
+                  {sideName(
+                    game.roundResult?.setWinner ??
+                      lowestScorer(game.playerOrder, game.scores ?? {}),
+                  )}
+                </span>
+              </p>
+            )}
+
             {matchOver ? (
               <>
                 <p className="mt-4 text-center text-sm">
-                  Kazanan:{' '}
+                  {isSeries ? 'Maçı kazanan' : 'Kazanan'}:{' '}
                   <span className="font-semibold text-amber-300">
-                    {nameFor(lowestScorer(game.playerOrder, game.scores ?? {}))}
+                    {sideName(
+                      game.roundResult?.matchWinner ??
+                        game.roundResult?.setWinner ??
+                        lowestScorer(game.playerOrder, game.scores ?? {}),
+                    )}
                   </span>
                 </p>
                 <Link
@@ -452,14 +510,18 @@ export function GamePage() {
             ) : isHost ? (
               <button
                 type="button"
-                onClick={handleNextRound}
+                onClick={setComplete ? handleNextSet : handleNextRound}
                 className="mt-4 w-full rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400"
               >
-                Sonraki tur ({roundsPlayed}/{roundsPerSet})
+                {setComplete
+                  ? 'Sonraki set'
+                  : `Sonraki tur (${roundsPlayed}/${roundsPerSet})`}
               </button>
             ) : (
               <p className="mt-4 text-center text-sm text-stone-400">
-                Sonraki turu kurucu başlatacak…
+                {setComplete
+                  ? 'Sonraki seti kurucu başlatacak…'
+                  : 'Sonraki turu kurucu başlatacak…'}
               </p>
             )}
           </div>

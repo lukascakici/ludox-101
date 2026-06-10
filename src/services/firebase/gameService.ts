@@ -15,7 +15,13 @@ import { deal } from '@/game/deal';
 import { computeOkey, isOkeyTile } from '@/game/okey';
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import { orderMeld } from '@/game/arrange';
-import { handValueOf, scoreRound, tileValue } from '@/game/scoring';
+import {
+  handValueOf,
+  scoreRound,
+  setMajority,
+  setWinnerOf,
+  tileValue,
+} from '@/game/scoring';
 import { emptierTeam, seatOrderForGame, teamOf } from '@/constants/lobby';
 import {
   GameMode,
@@ -79,6 +85,10 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     handValue,
     scores,
     roundsPlayed: 0,
+    roundsPerSet: lobby.settings.matchFormat.roundsPerSet,
+    bestOf: lobby.settings.matchFormat.bestOf,
+    setIndex: 0,
+    setsWon: {},
     opened: {},
     openedWith: {},
     melds: [],
@@ -199,6 +209,10 @@ export async function startSoloTestGame(
     handValue,
     scores,
     roundsPlayed: 0,
+    roundsPerSet: lobby.settings.matchFormat.roundsPerSet,
+    bestOf: lobby.settings.matchFormat.bestOf,
+    setIndex: 0,
+    setsWon: {},
     opened: {},
     openedWith: {},
     melds: [],
@@ -860,19 +874,62 @@ export async function discardTile(
       for (const player of game.playerOrder) {
         totals[player] = (game.scores?.[player] ?? 0) + (delta[player] ?? 0);
       }
+
+      // Set / match progression. A set ends after `roundsPerSet` rounds; the
+      // side with the lowest set total wins it. In paired mode "sides" are the
+      // two teams (totals combined per team); in solo mode each player is a side.
+      const teams = game.teams;
+      const sides = teams ? ['0', '1'] : game.playerOrder;
+      const setTotals: Record<string, number> = teams
+        ? { '0': 0, '1': 0 }
+        : totals;
+      if (teams) {
+        for (const player of game.playerOrder) {
+          const side = String(teams[player] ?? 0);
+          setTotals[side] = (setTotals[side] ?? 0) + (totals[player] ?? 0);
+        }
+      }
+
+      const newRoundsPlayed = (game.roundsPlayed ?? 0) + 1;
+      const setComplete = newRoundsPlayed >= (game.roundsPerSet ?? 1);
+      let nextSetsWon = game.setsWon ?? {};
+      let setWinner: string | undefined;
+      let matchComplete = false;
+      let matchWinner: string | undefined;
+      if (setComplete) {
+        setWinner = setWinnerOf(sides, setTotals);
+        if (setWinner) {
+          nextSetsWon = {
+            ...nextSetsWon,
+            [setWinner]: (nextSetsWon[setWinner] ?? 0) + 1,
+          };
+          if ((nextSetsWon[setWinner] ?? 0) >= setMajority(game.bestOf ?? 1)) {
+            matchComplete = true;
+            matchWinner = setWinner;
+          }
+        }
+      }
+
       const roundResult: RoundResult = {
         delta,
         totals,
         reason: won ? 'finish' : 'deck',
         doubled: globalDouble,
         ...(won ? { winner: uid } : {}),
+        ...(setComplete
+          ? { setComplete: true, ...(setWinner ? { setWinner } : {}) }
+          : {}),
+        ...(matchComplete
+          ? { matchComplete: true, ...(matchWinner ? { matchWinner } : {}) }
+          : {}),
       };
       endUpdate = {
         status: 'finished',
         scores: totals,
-        roundsPlayed: (game.roundsPlayed ?? 0) + 1,
+        roundsPlayed: newRoundsPlayed,
         roundResult,
         ...(won ? { winner: uid } : {}),
+        ...(setComplete ? { setsWon: nextSetsWon } : {}),
       };
     }
 
@@ -893,12 +950,15 @@ export async function discardTile(
 }
 
 /**
- * Starts the next round (el) of the match: re-deals from a fresh shuffle, resets
- * the table (melds, opens, discards, hands, deck, indicator), and rotates to a
- * new starter — while PRESERVING the cumulative match scores and roundsPlayed.
- * Called by the host from the between-rounds scoreboard.
+ * Re-deals a fresh hand from a new shuffle and clears the table (melds, opens,
+ * discards, hands, deck, indicator, pendingTake), rotating to a new starter.
+ * `extra` carries the round-vs-set difference (a set also resets scores and the
+ * in-set round counter). Shared by `advanceRound` and `advanceSet`.
  */
-export async function advanceRound(lobbyId: string): Promise<void> {
+async function redealAndUpdate(
+  lobbyId: string,
+  extra: Record<string, number | Record<string, number>>,
+): Promise<void> {
   const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
   const snapshot = await getDoc(gameRef);
   if (!snapshot.exists()) return;
@@ -937,12 +997,41 @@ export async function advanceRound(lobbyId: string): Promise<void> {
     roundResult: deleteField(),
     winner: deleteField(),
     pendingTake: deleteField(),
+    ...extra,
   });
   result.hands.forEach((hand, seat) => {
     batch.set(doc(gameRef, 'hands', playerOrder[seat]), { tiles: hand });
   });
   batch.set(doc(gameRef, 'private', 'deck'), { tiles: result.drawPile });
   await batch.commit();
+}
+
+/**
+ * Starts the next round (el) within the current set: re-deals while PRESERVING
+ * the set's running scores, the in-set round counter, and sets won so far.
+ * Called by the host from the between-rounds scoreboard.
+ */
+export async function advanceRound(lobbyId: string): Promise<void> {
+  await redealAndUpdate(lobbyId, {});
+}
+
+/**
+ * Starts the next SET of the match: re-deals and resets the set's scores and
+ * in-set round counter to zero, advancing the set index. Sets won so far are
+ * preserved (they were updated when the set completed). Host-triggered.
+ */
+export async function advanceSet(lobbyId: string): Promise<void> {
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const snapshot = await getDoc(gameRef);
+  if (!snapshot.exists()) return;
+  const game = snapshot.data() as GameState;
+  const scores: Record<string, number> = {};
+  game.playerOrder.forEach((uid) => (scores[uid] = 0));
+  await redealAndUpdate(lobbyId, {
+    scores,
+    roundsPlayed: 0,
+    setIndex: (game.setIndex ?? 0) + 1,
+  });
 }
 
 /** Subscribes to the current player's private hand (only they can read it). */

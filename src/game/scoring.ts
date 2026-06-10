@@ -80,3 +80,41 @@ export function lowestScorer(
   }
   return best;
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Set / match progression                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** Sets needed to win a bestOf match (a strict majority). bestOf 1→1, 3→2, 5→3. */
+export function setMajority(bestOf: number): number {
+  return Math.floor(bestOf / 2) + 1;
+}
+
+/**
+ * The side that won the set: the one with the lowest set total. `sides` lists
+ * the competing keys — player uids in solo mode, team keys ('0','1') in paired
+ * mode — and `totals` is keyed the same way. Ties resolve to the first side.
+ */
+export function setWinnerOf(
+  sides: string[],
+  totals: Record<string, number>,
+): string | undefined {
+  return lowestScorer(sides, totals);
+}
+
+/** The side that has won the most sets so far (match leader). Ties → first. */
+export function matchLeader(
+  sides: string[],
+  setsWon: Record<string, number>,
+): string | undefined {
+  let best: string | undefined;
+  let bestValue = -Infinity;
+  for (const side of sides) {
+    const value = setsWon[side] ?? 0;
+    if (value > bestValue) {
+      bestValue = value;
+      best = side;
+    }
+  }
+  return best;
+}
