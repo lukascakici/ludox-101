@@ -88,6 +88,11 @@ export interface GameState {
   melds: TableMeld[];
   /** Whether doubling (katlama) is on — affects the opening threshold. */
   doubling: boolean;
+  /**
+   * Team per player uid (0 | 1) in paired (eşli) mode; absent in solo mode.
+   * Partners sit across the table (seats 0&2 vs 1&3). Used for team scoring.
+   */
+  teams?: Record<string, 0 | 1>;
   /** uid of the winner once someone finishes (empty otherwise). */
   winner?: string;
   /** A tentative left-discard take awaiting open-or-return (absent if none). */

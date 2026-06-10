@@ -22,7 +22,7 @@ import {
   type Lobby,
   type LobbyPlayer,
 } from '@/types/lobby';
-import { OKEY101_MAX_PLAYERS } from '@/constants/lobby';
+import { OKEY101_MAX_PLAYERS, emptierTeam } from '@/constants/lobby';
 
 /** Minimal player identity (comes from Firebase Auth). */
 export interface LobbyHost {
@@ -35,7 +35,10 @@ export type LobbyActionErrorCode =
   | 'not-found'
   | 'not-waiting'
   | 'full'
-  | 'wrong-password';
+  | 'wrong-password'
+  | 'not-host'
+  | 'not-paired'
+  | 'team-full';
 
 /** Error thrown by join/leave when an action is not allowed. */
 export class LobbyActionError extends Error {
@@ -218,9 +221,10 @@ export async function joinLobby(
       uid: player.uid,
       displayName: player.displayName,
       isHost: false,
-      // Paired mode seats alternate teams (0,1,0,1) around the table.
+      // Paired mode: drop the joiner into whichever team has room (keeps 2-2
+      // balanced as players come and go; the host can rearrange afterwards).
       ...(data.settings.gameMode === GameMode.Paired
-        ? { team: (players.length % 2) as 0 | 1 }
+        ? { team: emptierTeam(players) }
         : {}),
     };
 
@@ -267,6 +271,93 @@ export async function leaveLobby(id: string, uid: string): Promise<void> {
       players: reseated,
       playerUids: reseated.map((p) => p.uid),
     });
+  });
+}
+
+/**
+ * Reassigns a player to a team in a paired lobby (host-only, while waiting).
+ * Used by the lobby's team-selection UI. Refuses to overfill a team (max 2),
+ * so the host can only move someone into a team with an open slot. Runs in a
+ * transaction to stay consistent with concurrent joins/leaves.
+ */
+export async function setPlayerTeam(
+  id: string,
+  hostUid: string,
+  targetUid: string,
+  team: 0 | 1,
+): Promise<void> {
+  const ref = doc(db, LOBBIES_COLLECTION, id);
+
+  await runTransaction(db, async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists()) throw new LobbyActionError('not-found');
+
+    const data = snapshot.data();
+    if (data.hostId !== hostUid) throw new LobbyActionError('not-host');
+    if (data.status !== LobbyStatus.Waiting) {
+      throw new LobbyActionError('not-waiting');
+    }
+    if (data.settings.gameMode !== GameMode.Paired) {
+      throw new LobbyActionError('not-paired');
+    }
+
+    const players: LobbyPlayer[] = data.players ?? [];
+    const current = players.find((p) => p.uid === targetUid);
+    if (!current) return; // player left meanwhile — nothing to do
+    if ((current.team ?? 0) === team) return; // already there
+
+    const occupants = players.filter((p) => (p.team ?? 0) === team).length;
+    if (occupants >= 2) throw new LobbyActionError('team-full');
+
+    const nextPlayers = players.map((p) =>
+      p.uid === targetUid ? { ...p, team } : p,
+    );
+    tx.update(ref, { players: nextPlayers });
+  });
+}
+
+/**
+ * Swaps the teams of two players in a paired lobby (host-only, while waiting).
+ * Needed because a 2-2 table is "full" on both sides, so the only way to change
+ * partnerships is to exchange a player from each team. A same-team pair is a
+ * no-op. Runs in a transaction.
+ */
+export async function swapPlayerTeams(
+  id: string,
+  hostUid: string,
+  uidA: string,
+  uidB: string,
+): Promise<void> {
+  if (uidA === uidB) return;
+  const ref = doc(db, LOBBIES_COLLECTION, id);
+
+  await runTransaction(db, async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists()) throw new LobbyActionError('not-found');
+
+    const data = snapshot.data();
+    if (data.hostId !== hostUid) throw new LobbyActionError('not-host');
+    if (data.status !== LobbyStatus.Waiting) {
+      throw new LobbyActionError('not-waiting');
+    }
+    if (data.settings.gameMode !== GameMode.Paired) {
+      throw new LobbyActionError('not-paired');
+    }
+
+    const players: LobbyPlayer[] = data.players ?? [];
+    const a = players.find((p) => p.uid === uidA);
+    const b = players.find((p) => p.uid === uidB);
+    if (!a || !b) return; // someone left meanwhile
+    const teamA = a.team ?? 0;
+    const teamB = b.team ?? 0;
+    if (teamA === teamB) return; // same team — nothing to swap
+
+    const nextPlayers = players.map((p) => {
+      if (p.uid === uidA) return { ...p, team: teamB };
+      if (p.uid === uidB) return { ...p, team: teamA };
+      return p;
+    });
+    tx.update(ref, { players: nextPlayers });
   });
 }
 

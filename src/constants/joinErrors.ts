@@ -10,6 +10,9 @@ const joinErrorMessages: Record<LobbyActionErrorCode, string> = {
   'not-waiting': 'Oyun zaten başlamış.',
   full: 'Lobi dolu.',
   'wrong-password': 'Şifre hatalı.',
+  'not-host': 'Bunu yalnızca kurucu yapabilir.',
+  'not-paired': 'Bu yalnızca eşli modda geçerli.',
+  'team-full': 'Takım dolu.',
 };
 
 /** Returns a Turkish message for a join/leave error. */

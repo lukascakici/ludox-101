@@ -6,6 +6,7 @@ import {
   onSnapshot,
   runTransaction,
   serverTimestamp,
+  updateDoc,
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
@@ -15,7 +16,13 @@ import { computeOkey, isOkeyTile } from '@/game/okey';
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import { orderMeld } from '@/game/arrange';
 import { handValueOf, scoreRound, tileValue } from '@/game/scoring';
-import { LobbyStatus, type Lobby, type LobbyPlayer } from '@/types/lobby';
+import { emptierTeam, seatOrderForGame, teamOf } from '@/constants/lobby';
+import {
+  GameMode,
+  LobbyStatus,
+  type Lobby,
+  type LobbyPlayer,
+} from '@/types/lobby';
 import type {
   GameState,
   PlayerHand,
@@ -35,7 +42,12 @@ const LOBBIES_COLLECTION = 'lobbies';
  * The starter holds the extra tile, so the round opens in the 'discard' phase.
  */
 export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
-  const playerOrder = lobby.players.map((player) => player.uid);
+  const paired = lobby.settings.gameMode === GameMode.Paired;
+  // Seat partners across the table (team0, team1, team0, team1).
+  const seated = seatOrderForGame(lobby.players, lobby.settings.gameMode);
+  const playerOrder = seated.map((player) => player.uid);
+  const teams: Record<string, 0 | 1> = {};
+  if (paired) seated.forEach((player) => (teams[player.uid] = teamOf(player)));
   const result = deal();
   const okey = computeOkey(result.indicator.face);
 
@@ -71,6 +83,7 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     openedWith: {},
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
+    ...(paired ? { teams } : {}),
   };
 
   const batch = writeBatch(db);
@@ -108,19 +121,53 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
 /*  single tester can drive the whole table.                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Pads a player list up to 4 with bots. In paired mode each bot is dropped into
+ * whichever team still has an open slot, so the table ends up 2 vs 2.
+ */
+function fillBots(
+  existing: readonly LobbyPlayer[],
+  paired: boolean,
+): LobbyPlayer[] {
+  const players: LobbyPlayer[] = [...existing];
+  const botCount = Math.max(0, 4 - players.length);
+  for (let i = 0; i < botCount; i++) {
+    const bot: LobbyPlayer = {
+      uid: `bot-${i + 1}`,
+      displayName: `Bot ${i + 1}`,
+      isHost: false,
+      ...(paired ? { team: emptierTeam(players) } : {}),
+    };
+    players.push(bot);
+  }
+  return players;
+}
+
+/**
+ * Seats bots into the lobby (up to 4) WITHOUT starting the game, so the host can
+ * arrange the teams in the lobby UI and then start normally. Dev/testing only.
+ */
+export async function fillLobbyWithBots(lobby: Lobby): Promise<void> {
+  const paired = lobby.settings.gameMode === GameMode.Paired;
+  const players = fillBots(lobby.players, paired);
+  await updateDoc(doc(db, LOBBIES_COLLECTION, lobby.id), {
+    players,
+    playerUids: players.map((player) => player.uid),
+  });
+}
+
 /** Fills the lobby up to 4 with bots and starts the game (dev/testing only). */
 export async function startSoloTestGame(
   lobby: Lobby,
   hostUid: string,
 ): Promise<void> {
-  const botCount = Math.max(0, 4 - lobby.players.length);
-  const bots: LobbyPlayer[] = Array.from({ length: botCount }, (_, i) => ({
-    uid: `bot-${i + 1}`,
-    displayName: `Bot ${i + 1}`,
-    isHost: false,
-  }));
-  const players = [...lobby.players, ...bots];
-  const playerOrder = players.map((player) => player.uid);
+  const paired = lobby.settings.gameMode === GameMode.Paired;
+  const players = fillBots(lobby.players, paired);
+  // Seat partners across the table in paired mode; keep order otherwise.
+  const seated = seatOrderForGame(players, lobby.settings.gameMode);
+  const playerOrder = seated.map((player) => player.uid);
+  const teams: Record<string, 0 | 1> = {};
+  if (paired) seated.forEach((player) => (teams[player.uid] = teamOf(player)));
 
   const result = deal();
   const okey = computeOkey(result.indicator.face);
@@ -156,6 +203,7 @@ export async function startSoloTestGame(
     openedWith: {},
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
+    ...(paired ? { teams } : {}),
   };
 
   const batch = writeBatch(db);
@@ -171,8 +219,8 @@ export async function startSoloTestGame(
     at: serverTimestamp(),
   });
   batch.update(doc(db, LOBBIES_COLLECTION, lobby.id), {
-    players,
-    playerUids: players.map((player) => player.uid),
+    players: seated,
+    playerUids: seated.map((player) => player.uid),
     status: LobbyStatus.InProgress,
   });
 
