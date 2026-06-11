@@ -94,6 +94,20 @@ describe('scoreRound', () => {
     expect(result).toEqual({ a: -202, b: 28, c: 404, d: 10 });
   });
 
+  it('non-openers always score a flat 202 (a team of two sums to 404)', () => {
+    // Both members of team 0 (a&c) fail to open: each is 202, NOT doubled —
+    // their combined team total is 404 naturally. No per-player 404.
+    const result = scoreRound({
+      playerOrder: order,
+      opened: { a: false, b: true, c: false, d: true },
+      openedWith: { b: 'meld', d: 'meld' },
+      handValue: { a: 0, b: 6, c: 0, d: 7 },
+      globalDouble: false,
+    });
+    expect(result).toEqual({ a: 202, b: 6, c: 202, d: 7 });
+    expect((result.a ?? 0) + (result.c ?? 0)).toBe(404);
+  });
+
   it('deck-exhausted: a pair opener still doubles their held tiles', () => {
     const result = scoreRound({
       playerOrder: order,

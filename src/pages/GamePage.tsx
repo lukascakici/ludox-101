@@ -435,45 +435,7 @@ export function GamePage() {
               </div>
             )}
 
-            <div className="mt-4 space-y-1">
-              <div className="flex items-center justify-between px-2 text-[11px] uppercase tracking-wide text-stone-400">
-                <span>Oyuncu</span>
-                <span className="flex gap-3">
-                  <span className="w-12 text-right">Bu el</span>
-                  <span className="w-12 text-right">Toplam</span>
-                </span>
-              </div>
-              {[...game.playerOrder]
-                .sort(
-                  (a, b) => (game.scores?.[a] ?? 0) - (game.scores?.[b] ?? 0),
-                )
-                .map((playerUid) => {
-                  const delta = game.roundResult?.delta[playerUid];
-                  const total = game.scores?.[playerUid] ?? 0;
-                  return (
-                    <div
-                      key={playerUid}
-                      className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm ${
-                        playerUid === uid ? 'bg-white/10' : ''
-                      }`}
-                    >
-                      <span className="truncate">{nameFor(playerUid)}</span>
-                      <span className="flex gap-3 tabular-nums">
-                        <span className="w-12 text-right text-stone-400">
-                          {delta == null
-                            ? '–'
-                            : delta > 0
-                              ? `+${delta}`
-                              : delta}
-                        </span>
-                        <span className="w-12 text-right font-semibold">
-                          {total}
-                        </span>
-                      </span>
-                    </div>
-                  );
-                })}
-            </div>
+            <ScoreTable game={game} meUid={uid} nameFor={nameFor} />
 
             {/* Who won the set, when a set just ended mid-match. */}
             {setComplete && !matchOver && (
@@ -528,5 +490,105 @@ export function GamePage() {
         </div>
       )}
     </>
+  );
+}
+
+/** Formats a round delta with an explicit sign (penalties are positive). */
+function fmtDelta(delta: number | undefined): string {
+  if (delta == null) return '–';
+  return delta > 0 ? `+${delta}` : String(delta);
+}
+
+/**
+ * Between-rounds score table. Solo mode is a flat per-player list sorted by set
+ * total; paired mode groups the two teams (combined total + member rows), with
+ * the leading team on top.
+ */
+function ScoreTable({
+  game,
+  meUid,
+  nameFor,
+}: {
+  game: GameState;
+  meUid: string | undefined;
+  nameFor: (uid: string | undefined) => string;
+}) {
+  const deltaOf = (uid: string) => game.roundResult?.delta[uid];
+  const totalOf = (uid: string) => game.scores?.[uid] ?? 0;
+
+  const header = (
+    <div className="flex items-center justify-between px-2 text-[11px] uppercase tracking-wide text-stone-400">
+      <span>{game.teams ? 'Takım' : 'Oyuncu'}</span>
+      <span className="flex gap-3">
+        <span className="w-12 text-right">Bu el</span>
+        <span className="w-12 text-right">Toplam</span>
+      </span>
+    </div>
+  );
+
+  const playerRow = (uid: string, indent = false) => (
+    <div
+      key={uid}
+      className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm ${
+        uid === meUid ? 'bg-white/10' : ''
+      } ${indent ? 'pl-4 text-stone-300' : ''}`}
+    >
+      <span className="truncate">{nameFor(uid)}</span>
+      <span className="flex gap-3 tabular-nums">
+        <span className="w-12 text-right text-stone-400">
+          {fmtDelta(deltaOf(uid))}
+        </span>
+        <span className="w-12 text-right font-semibold">{totalOf(uid)}</span>
+      </span>
+    </div>
+  );
+
+  // Solo: flat list, lowest total first.
+  if (!game.teams) {
+    const order = [...game.playerOrder].sort(
+      (a, b) => totalOf(a) - totalOf(b),
+    );
+    return (
+      <div className="mt-4 space-y-1">
+        {header}
+        {order.map((uid) => playerRow(uid))}
+      </div>
+    );
+  }
+
+  // Paired: two team blocks, leading (lowest combined) team on top.
+  const teams = game.teams;
+  const teamData = ([0, 1] as const)
+    .map((team) => {
+      const members = game.playerOrder.filter((uid) => teams[uid] === team);
+      const teamTotal = members.reduce((sum, uid) => sum + totalOf(uid), 0);
+      const deltas = members.map((uid) => deltaOf(uid));
+      const teamDelta = deltas.some((d) => d == null)
+        ? undefined
+        : deltas.reduce<number>((sum, d) => sum + (d ?? 0), 0);
+      return { team, members, teamTotal, teamDelta };
+    })
+    .sort((a, b) => a.teamTotal - b.teamTotal);
+
+  return (
+    <div className="mt-4 space-y-3">
+      {header}
+      {teamData.map(({ team, members, teamTotal, teamDelta }) => (
+        <div key={team} className="space-y-1">
+          <div className="flex items-center justify-between rounded-md bg-white/5 px-2 py-1.5 text-sm">
+            <span className="font-semibold">{teamLabels[team]}</span>
+            <span className="flex gap-3 tabular-nums">
+              <span className="w-12 text-right text-stone-400">
+                {fmtDelta(teamDelta)}
+              </span>
+              <span className="w-12 text-right font-semibold text-amber-300">
+                {teamTotal}
+              </span>
+            </span>
+          </div>
+          {members.map((uid) => playerRow(uid, true))}
+        </div>
+      ))}
+    </div>
   );
 }

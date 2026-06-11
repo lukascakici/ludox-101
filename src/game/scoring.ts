@@ -11,8 +11,9 @@ import type { Tile, TileFace } from './tiles';
  * A "special" finish (closing by discarding the okey, or finishing a pairs
  * hand) doubles every player's result for that round.
  *
- * (Eşli/paired nuance — both partners failing to open scores 404 — is deferred
- * until paired mode exists.)
+ * Eşli/paired note: a non-opener simply scores 202 (NOT doubled). When BOTH
+ * partners fail to open, their TEAM total is naturally 404 (202 + 202) — there
+ * is no per-player doubling for this case. (Set scoring combines team totals.)
  */
 
 export const NOT_OPENED_PENALTY = 202;
