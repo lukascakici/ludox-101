@@ -144,8 +144,18 @@ export interface GameState {
   openedWith: Record<string, 'meld' | 'pair'>;
   /** Melds laid on the table. */
   melds: TableMeld[];
-  /** Whether doubling (katlama) is on — affects the opening threshold. */
+  /**
+   * Whether katlama (rising opening bar) is on. When true, each player's FIRST
+   * open must STRICTLY exceed the highest same-type opening made by their
+   * opponents so far (meld total for melds, pair count for pairs). Solo = every
+   * other player is an opponent; paired = the opposing team only.
+   */
   doubling: boolean;
+  /**
+   * Each player's FIRST-open value (meld point total, or pair count) — recorded
+   * only on the opening, used to compute the katlama bar. Reset each re-deal.
+   */
+  openValue?: Record<string, number>;
   /** Whether floor penalties (cezalar) are enabled for this game. */
   floorPenalty: boolean;
   /** Whether the rekor reward (rekorlu) is enabled (snapshotted at start). */

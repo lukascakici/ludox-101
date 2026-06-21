@@ -13,7 +13,8 @@ import {
 import { db } from './config';
 import { deal } from '@/game/deal';
 import { computeOkey, countOkeys, isOkeyTile } from '@/game/okey';
-import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
+import { classifyMeld, isPair } from '@/game/melds';
+import { effectiveOpenMin, effectivePairMin } from '@/game/katlama';
 import { orderMeld } from '@/game/arrange';
 import {
   handValueOf,
@@ -341,6 +342,7 @@ function wrongMovePenaltyLog(
   return [...(game.penaltyLog ?? []), { uid, reason, points }];
 }
 
+
 /**
  * Opens (lays) melds on the table. Validates each group as a meld and requires
  * the total to reach the opening threshold (≥101). Removes the tiles from the
@@ -397,8 +399,10 @@ export async function openMelds(
         tiles: orderMeld(group, game.okey),
       });
     }
-    // The 101 threshold only applies to the FIRST opening.
-    const belowThreshold = !alreadyOpened && total < OPENING_MIN;
+    // The opening threshold only applies to the FIRST opening. Under katlama it
+    // rises above the opponents' highest opening (effectiveOpenMin).
+    const belowThreshold =
+      !alreadyOpened && total < effectiveOpenMin(game, uid);
     if (invalidMeld || belowThreshold) {
       // Unassisted: don't lay the melds — reject the open but commit a wrong-open
       // penalty here, then signal the caller to surface a "ceza" toast.
@@ -438,8 +442,10 @@ export async function openMelds(
     tx.update(gameRef, {
       melds: [...existingMelds, ...tableMelds],
       [`opened.${uid}`]: true,
-      // Record the opening kind only on the FIRST open (don't overwrite later).
-      ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'meld' }),
+      // Record the opening kind + value only on the FIRST open (the katlama bar).
+      ...(alreadyOpened
+        ? {}
+        : { [`openedWith.${uid}`]: 'meld', [`openValue.${uid}`]: total }),
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
       [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
@@ -507,8 +513,10 @@ export async function layPairs(
     const invalidPair = groups.some(
       (group) => !isPair(group.map((tile) => tile.face), game.okey),
     );
-    // Opening with pairs requires reaching the pairs threshold.
-    const belowThreshold = !alreadyOpened && groups.length < PAIRS_MIN;
+    // Opening with pairs requires reaching the pairs threshold; under katlama it
+    // rises above the opponents' highest pairs opening (effectivePairMin).
+    const belowThreshold =
+      !alreadyOpened && groups.length < effectivePairMin(game, uid);
     if (invalidPair || belowThreshold) {
       // Unassisted: reject the lay but commit a wrong-open penalty here.
       if (penalizesInvalidMoves(game)) {
@@ -552,8 +560,13 @@ export async function layPairs(
     tx.update(gameRef, {
       melds: [...existingMelds, ...pairMelds],
       [`opened.${uid}`]: true,
-      // Record 'pair' only when this lay is the player's first opening.
-      ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'pair' }),
+      // Record 'pair' + the pair count only when this is the player's first open.
+      ...(alreadyOpened
+        ? {}
+        : {
+            [`openedWith.${uid}`]: 'pair',
+            [`openValue.${uid}`]: groups.length,
+          }),
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
       [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
@@ -1210,6 +1223,7 @@ async function redealAndUpdate(
     okeyCount,
     opened: {},
     openedWith: {},
+    openValue: {},
     melds: [],
     roundResult: deleteField(),
     winner: deleteField(),

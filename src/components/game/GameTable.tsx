@@ -8,7 +8,7 @@ import { Tile } from './Tile';
 import { FlyingTile, type Flight, type Point } from './FlyingTile';
 import { usePointerDrag, isOverSelector } from './usePointerDrag';
 import { computeOkey, isOkeyTile } from '@/game/okey';
-import { classifyMeld, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
+import { classifyMeld } from '@/game/melds';
 import {
   arrangeBestMelds,
   arrangePairs,
@@ -53,6 +53,10 @@ interface GameTableProps {
   canProcess: boolean;
   /** Assisted mode: show helpers (auto-arrange, score, markers, auto-işle). */
   assisted: boolean;
+  /** Effective first-open target — meld point total (rises under katlama). */
+  meldTarget: number;
+  /** Effective first-open target — pair count (rises under katlama). */
+  pairTarget: number;
   onDraw: () => void;
   onDiscard: (tileId: string) => void;
   onTakeDiscard: () => void;
@@ -93,6 +97,8 @@ export function GameTable({
   melds,
   canProcess,
   assisted,
+  meldTarget,
+  pairTarget,
   onDraw,
   onDiscard,
   onTakeDiscard,
@@ -511,25 +517,25 @@ export function GameTable({
           />
 
           <div className="flex flex-col gap-2">
-            {/* Açma ilerlemesi (x/101, x/5) yardımsız modda da görünür. */}
+            {/* Açma ilerlemesi (x/hedef) — hedef katlamada yükselir. */}
             <div className="flex gap-1 text-xs">
               <span
                 className={`rounded-md border px-2 py-1 font-semibold tabular-nums ${
-                  score.series >= 101
+                  score.series >= meldTarget
                     ? 'border-amber-400 text-amber-300'
                     : 'border-stone-100/30 text-stone-200'
                 }`}
               >
-                {score.series}/101
+                {score.series}/{meldTarget}
               </span>
               <span
                 className={`rounded-md border px-2 py-1 font-semibold tabular-nums ${
-                  score.pairs >= 5
+                  score.pairs >= pairTarget
                     ? 'border-amber-400 text-amber-300'
                     : 'border-stone-100/30 text-stone-200'
                 }`}
               >
-                {score.pairs}/5
+                {score.pairs}/{pairTarget}
               </span>
             </div>
 
@@ -583,9 +589,9 @@ export function GameTable({
               <button
                 type="button"
                 onClick={() =>
-                  // Auto-route: open with pairs only when 5+ pairs are arranged
-                  // and the meld total can't reach 101.
-                  score.series < OPENING_MIN && score.pairs >= PAIRS_MIN
+                  // Auto-route: open with pairs only when the pair target is met
+                  // and the meld total can't reach the (possibly raised) target.
+                  score.series < meldTarget && score.pairs >= pairTarget
                     ? onLayPairs(currentGroups)
                     : onOpen(currentGroups)
                 }

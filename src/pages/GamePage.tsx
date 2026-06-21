@@ -21,6 +21,7 @@ import {
   takeFromDiscard,
 } from '@/services/firebase/gameService';
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
+import { effectiveOpenMin, effectivePairMin } from '@/game/katlama';
 import {
   lowestScorer,
   PENALTY_WRONG_OPEN,
@@ -212,6 +213,9 @@ export function GamePage() {
   const canOpen = isMyTurn && game.turnPhase === 'discard';
   // İşleme requires you to have opened first.
   const canProcess = canOpen && hasOpened;
+  // Effective FIRST-open targets (rise above opponents' openings under katlama).
+  const meldTarget = uid ? effectiveOpenMin(game, uid) : OPENING_MIN;
+  const pairTarget = uid ? effectivePairMin(game, uid) : PAIRS_MIN;
 
   async function handleDraw() {
     if (!id || !uid) return;
@@ -288,9 +292,9 @@ export function GamePage() {
       0,
     );
     const alreadyOpened = (game.opened ?? {})[uid] === true;
-    if (!alreadyOpened && total < OPENING_MIN) {
+    if (!alreadyOpened && total < meldTarget) {
       setOpenError(
-        `Geçerli perlerin toplamı ${total} — açmak için en az ${OPENING_MIN} gerekli.`,
+        `Geçerli perlerin toplamı ${total} — açmak için en az ${meldTarget} gerekli.`,
       );
       return;
     }
@@ -346,9 +350,9 @@ export function GamePage() {
     }
 
     const alreadyOpened = (game.opened ?? {})[uid] === true;
-    if (!alreadyOpened && pairGroups.length < PAIRS_MIN) {
+    if (!alreadyOpened && pairGroups.length < pairTarget) {
       setOpenError(
-        `${pairGroups.length} çift — açmak için en az ${PAIRS_MIN} çift gerekli.`,
+        `${pairGroups.length} çift — açmak için en az ${pairTarget} çift gerekli.`,
       );
       return;
     }
@@ -439,6 +443,8 @@ export function GamePage() {
         melds={tableMelds}
         canProcess={canProcess}
         assisted={lobby.settings.assisted ?? true}
+        meldTarget={meldTarget}
+        pairTarget={pairTarget}
         onDraw={handleDraw}
         onTakeDiscard={handleTakeDiscard}
         onDiscard={handleDiscard}
