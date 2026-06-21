@@ -59,6 +59,8 @@ interface GameTableProps {
   pairTarget: number;
   /** Absolute ms deadline for the current turn, or null when no clock runs. */
   turnDeadlineMs: number | null;
+  /** Player uids whose heartbeat is stale (shown as "bağlantısı koptu"). */
+  offlineUids: Set<string>;
   onDraw: () => void;
   onDiscard: (tileId: string) => void;
   onTakeDiscard: () => void;
@@ -122,6 +124,7 @@ export function GameTable({
   meldTarget,
   pairTarget,
   turnDeadlineMs,
+  offlineUids,
   onDraw,
   onDiscard,
   onTakeDiscard,
@@ -351,6 +354,7 @@ export function GameTable({
             name={nameOf(acrossUid)}
             tileCount={handCounts[acrossUid] ?? 0}
             isTurn={acrossUid === currentTurnUid}
+            offline={offlineUids.has(acrossUid)}
           />
         </div>
         <div
@@ -361,6 +365,7 @@ export function GameTable({
             name={nameOf(leftUid)}
             tileCount={handCounts[leftUid] ?? 0}
             isTurn={leftUid === currentTurnUid}
+            offline={offlineUids.has(leftUid)}
           />
         </div>
         <div
@@ -371,6 +376,7 @@ export function GameTable({
             name={nameOf(rightUid)}
             tileCount={handCounts[rightUid] ?? 0}
             isTurn={rightUid === currentTurnUid}
+            offline={offlineUids.has(rightUid)}
           />
         </div>
 

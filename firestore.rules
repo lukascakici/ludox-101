@@ -34,13 +34,13 @@ service cloud.firestore {
       // Public game state: any signed-in user may read/write.
       allow read, write: if request.auth != null;
 
-      // Private hands: only the owner can read their own hand. Writes are
-      // permissive for now (the host deals everyone's hand on start).
+      // Hands. Pragmatic / client-authoritative: any signed-in participant can
+      // read AND write any hand. Reading others' hands is REQUIRED so that when a
+      // player disconnects, another client can auto-play their turn (the table
+      // auto-continues). Tradeoff accepted (like okeyCount): the official UI never
+      // shows opponents' tiles, but they are technically visible in the DB.
       match /hands/{uid} {
-        // Owners read their own hand; bot hands are readable (dev test only).
-        allow read: if request.auth != null
-          && (request.auth.uid == uid || uid.matches('bot-.*'));
-        allow write: if request.auth != null;
+        allow read, write: if request.auth != null;
       }
 
       // Draw pile and move log: readable/writable by any signed-in user.

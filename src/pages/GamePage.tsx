@@ -17,6 +17,8 @@ import {
   processTile,
   resolveTurnTimeout,
   returnTake,
+  subscribeToPresence,
+  writePresence,
   subscribeToGame,
   subscribeToHand,
   takeFromDiscard,
@@ -36,6 +38,16 @@ import { RotateDevicePrompt } from '@/components/game/RotateDevicePrompt';
 import type { Lobby } from '@/types/lobby';
 import type { GameState } from '@/types/game';
 import type { Tile } from '@/game/tiles';
+import type { Timestamp } from 'firebase/firestore';
+
+/** Heartbeat cadence and the staleness past which a player counts as offline. */
+const HEARTBEAT_MS = 8000;
+const OFFLINE_MS = 20000;
+/** Extra wait past the turn deadline before a driver fires for an offline player. */
+const OFFLINE_FIRE_GRACE = 3000;
+/** Bots auto-play via their own loop; only humans are subject to presence. */
+const isHuman = (u: string | undefined): u is string =>
+  !!u && !u.startsWith('bot');
 
 function FullScreenMessage({ children }: { children: React.ReactNode }) {
   return (
@@ -58,6 +70,9 @@ export function GamePage() {
   const [gameLoaded, setGameLoaded] = useState(false);
   const [hand, setHand] = useState<Tile[] | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
+  const [presence, setPresence] = useState<Record<string, Timestamp>>({});
+  // Re-renders on a slow tick so time-based offline status refreshes without new data.
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   useEffect(() => {
     if (!id) return;
@@ -88,6 +103,26 @@ export function GamePage() {
       console.error('subscribeToHand failed:', err);
     });
   }, [id, uid]);
+
+  // Presence: stamp my heartbeat on a timer, and subscribe to everyone's. The
+  // heartbeat lives in a side doc, so it doesn't churn the main game snapshot.
+  useEffect(() => {
+    if (!id || !uid) return;
+    const beat = () => void writePresence(id, uid).catch(() => {});
+    beat();
+    const iv = setInterval(beat, HEARTBEAT_MS);
+    return () => clearInterval(iv);
+  }, [id, uid]);
+
+  useEffect(() => {
+    if (!id) return;
+    return subscribeToPresence(id, setPresence);
+  }, [id]);
+
+  useEffect(() => {
+    const iv = setInterval(() => setNowTick(Date.now()), 3000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Dev: auto-play bot turns. A game-change trigger keeps it responsive, and a
   // polling safety net re-kicks it if a bot ever gets stuck.
@@ -127,35 +162,60 @@ export function GamePage() {
     return () => clearTimeout(timer);
   }, [openError]);
 
-  // Turn timeout: when MY own turn's countdown expires, auto-resolve it (draw +
-  // discard the drawn tile). v1 fires only for the local player's own turn, so
-  // there's no cross-client race; covering a disconnected player is deferred to
-  // the disconnect task. A ref prevents a double-fire within this client.
+  // Turn timeout. On expiry the turn is auto-resolved (draw + discard the drawn
+  // tile). Two cases: (a) MY own turn — I fire it; (b) it's a DISCONNECTED
+  // player's turn and I'm the designated driver — I fire it for them after a
+  // small grace. The driver is the first ONLINE human in seat order, so exactly
+  // one client fires (no herd); resolveTurnTimeout is race-safe as a backstop.
   const timeoutFiringRef = useRef(false);
   useEffect(() => {
     if (!id || !uid || !game || !lobby) return;
     if (game.status !== 'playing' || game.roundResult) return;
-    if (game.playerOrder[game.turnIndex] !== uid) return;
     const startedMs = game.turnStartedAt?.toMillis?.() ?? null;
     if (startedMs == null) return;
-    const deadline = startedMs + (lobby.settings.turnDuration ?? 30) * 1000;
+    const duration = (lobby.settings.turnDuration ?? 30) * 1000;
+    const current = game.playerOrder[game.turnIndex];
+    const now = Date.now();
+    const isOffline = (u: string): boolean => {
+      if (!isHuman(u)) return false;
+      const seen = presence[u]?.toMillis?.() ?? null;
+      return seen != null && now - seen > OFFLINE_MS;
+    };
+
+    let target: string | null = null;
+    let extraGrace = 0;
+    if (current === uid) {
+      target = uid;
+    } else if (isOffline(current)) {
+      const driver =
+        game.playerOrder.find(
+          (p) => p !== current && isHuman(p) && !isOffline(p),
+        ) ?? null;
+      if (driver === uid) {
+        target = current;
+        extraGrace = OFFLINE_FIRE_GRACE;
+      }
+    }
+    if (!target) return;
+
+    const fireFor = target;
     const fire = () => {
       if (timeoutFiringRef.current) return;
       timeoutFiringRef.current = true;
-      resolveTurnTimeout(id, uid)
+      resolveTurnTimeout(id, fireFor)
         .catch((err) => console.error('turn timeout resolve failed:', err))
         .finally(() => {
           timeoutFiringRef.current = false;
         });
     };
-    const remaining = deadline - Date.now();
+    const remaining = startedMs + duration + extraGrace - now;
     if (remaining <= 0) {
       fire();
       return;
     }
     const timer = setTimeout(fire, remaining);
     return () => clearTimeout(timer);
-  }, [id, uid, game, lobby]);
+  }, [id, uid, game, lobby, presence, nowTick]);
 
   // When the whole MATCH ends, the host returns the lobby to waiting so it's
   // reusable and everyone can leave cleanly. (Between rounds the lobby stays in
@@ -211,6 +271,15 @@ export function GamePage() {
     isPlaying && !game.roundResult && turnStartedMs != null
       ? turnStartedMs + (lobby.settings.turnDuration ?? 30) * 1000
       : null;
+  // Players whose heartbeat has gone stale (humans only) — shown as "bağlantısı
+  // koptu" and auto-played by the driver. `nowTick` keeps this fresh over time.
+  const offlineUids = new Set(
+    game.playerOrder.filter((p) => {
+      if (!isHuman(p)) return false;
+      const seen = presence[p]?.toMillis?.() ?? null;
+      return seen != null && nowTick - seen > OFFLINE_MS;
+    }),
+  );
   const isDrawPhase = isMyTurn && game.turnPhase === 'draw';
   const canDraw = isDrawPhase && game.drawCount > 0;
   const canTake = isDrawPhase;
@@ -485,6 +554,7 @@ export function GamePage() {
         meldTarget={meldTarget}
         pairTarget={pairTarget}
         turnDeadlineMs={turnDeadlineMs}
+        offlineUids={offlineUids}
         onDraw={handleDraw}
         onTakeDiscard={handleTakeDiscard}
         onDiscard={handleDiscard}

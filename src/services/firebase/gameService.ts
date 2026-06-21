@@ -6,8 +6,10 @@ import {
   onSnapshot,
   runTransaction,
   serverTimestamp,
+  setDoc,
   updateDoc,
   writeBatch,
+  type Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './config';
@@ -1251,7 +1253,13 @@ export async function resolveTurnTimeout(
   if (!afterTake || afterTake.playerOrder[afterTake.turnIndex] !== uid) return;
   if (afterTake.turnPhase === 'draw') {
     if ((afterTake.drawCount ?? 0) === 0) return;
-    await drawFromDeck(lobbyId, uid);
+    // A concurrent driver (when this player is offline) may have drawn first —
+    // its guards throw; bail rather than double-act.
+    try {
+      await drawFromDeck(lobbyId, uid);
+    } catch {
+      return;
+    }
   }
 
   // 3. Discard. Re-read so the chosen tile reflects the just-drawn hand.
@@ -1270,7 +1278,37 @@ export async function resolveTurnTimeout(
     (handSnap.data() as PlayerHand).tiles,
     afterDraw,
   );
-  if (tileId) await discardTile(lobbyId, uid, tileId);
+  // Swallow the guard errors a losing concurrent driver hits (tile already gone /
+  // turn already advanced) — only one discard actually lands.
+  if (tileId) await discardTile(lobbyId, uid, tileId).catch(() => {});
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Presence (heartbeat). Stored at games/{id}/private/presence so it does NOT  */
+/*  churn the main game-doc snapshot. Each client stamps its own uid every few  */
+/*  seconds; a stale stamp means that player is offline (disconnected).         */
+/* -------------------------------------------------------------------------- */
+
+/** Stamps the current player's heartbeat (called on a timer while in-game). */
+export async function writePresence(
+  lobbyId: string,
+  uid: string,
+): Promise<void> {
+  const ref = doc(db, GAMES_COLLECTION, lobbyId, 'private', 'presence');
+  await setDoc(ref, { [uid]: serverTimestamp() }, { merge: true });
+}
+
+/** Subscribes to the presence map (uid → last-seen Timestamp). */
+export function subscribeToPresence(
+  lobbyId: string,
+  onChange: (lastSeen: Record<string, Timestamp>) => void,
+): Unsubscribe {
+  const ref = doc(db, GAMES_COLLECTION, lobbyId, 'private', 'presence');
+  return onSnapshot(ref, (snap) => {
+    onChange(
+      snap.exists() ? (snap.data() as Record<string, Timestamp>) : {},
+    );
+  });
 }
 
 /**
