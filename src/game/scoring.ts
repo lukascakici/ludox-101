@@ -32,6 +32,15 @@ export const PENALTY_WRONG_OPEN = 101;
 /** Attempting an invalid process (unassisted mode): move rejected, penalty written. */
 export const PENALTY_WRONG_PROCESS = 101;
 
+/* Rekor (rekorlu) — a REWARD, not a floor penalty. Triggered by a big opening,
+ * granted only if the rekor opener also finishes the round. */
+/** First-open meld total at/above which the opening is a rekor. */
+export const REKOR_MIN_TOTAL = 153;
+/** Number of pairs in a first open at/above which it is a rekor. */
+export const REKOR_MIN_PAIRS = 7;
+/** Reward applied to a rekor opener who finishes the round (negative = improves). */
+export const REKOR_BONUS = -101;
+
 /** Penalty value a single held tile contributes at round end. */
 export function tileValue(face: TileFace, okey: OkeyMatch | null): number {
   // A false joker stands for the okey's number; the okey tile is itself a

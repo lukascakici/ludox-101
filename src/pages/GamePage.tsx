@@ -493,29 +493,59 @@ export function GamePage() {
 
             <ScoreTable game={game} meUid={uid} nameFor={nameFor} />
 
-            {/* Floor penalties applied this round (already folded into Bu el). */}
-            {game.roundResult?.penalties &&
-              game.roundResult.penalties.length > 0 && (
-                <div className="mt-3 space-y-1 rounded-md bg-red-950/40 px-2 py-1.5">
-                  <p className="text-[11px] uppercase tracking-wide text-red-300/80">
-                    Ceza
-                  </p>
-                  {game.roundResult.penalties.map((p, index) => (
-                    <div
-                      key={`${p.uid}-${index}`}
-                      className="flex items-center justify-between text-sm text-red-200"
-                    >
-                      <span className="truncate">
-                        {nameFor(p.uid)} ·{' '}
-                        {penaltyReasonLabels[p.reason] ?? 'ceza'}
-                      </span>
-                      <span className="tabular-nums font-semibold">
-                        +{p.points}
-                      </span>
+            {/* Floor penalties (red, positive) and rewards like rekor (green,
+                negative) applied this round — already folded into Bu el. */}
+            {(() => {
+              const entries = game.roundResult?.penalties ?? [];
+              const cezalar = entries.filter((p) => p.points > 0);
+              const oduller = entries.filter((p) => p.points < 0);
+              return (
+                <>
+                  {cezalar.length > 0 && (
+                    <div className="mt-3 space-y-1 rounded-md bg-red-950/40 px-2 py-1.5">
+                      <p className="text-[11px] uppercase tracking-wide text-red-300/80">
+                        Ceza
+                      </p>
+                      {cezalar.map((p, index) => (
+                        <div
+                          key={`${p.uid}-${index}`}
+                          className="flex items-center justify-between text-sm text-red-200"
+                        >
+                          <span className="truncate">
+                            {nameFor(p.uid)} ·{' '}
+                            {penaltyReasonLabels[p.reason] ?? 'ceza'}
+                          </span>
+                          <span className="tabular-nums font-semibold">
+                            +{p.points}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
+                  )}
+                  {oduller.length > 0 && (
+                    <div className="mt-3 space-y-1 rounded-md bg-emerald-950/40 px-2 py-1.5">
+                      <p className="text-[11px] uppercase tracking-wide text-emerald-300/80">
+                        Ödül
+                      </p>
+                      {oduller.map((p, index) => (
+                        <div
+                          key={`${p.uid}-${index}`}
+                          className="flex items-center justify-between text-sm text-emerald-200"
+                        >
+                          <span className="truncate">
+                            {nameFor(p.uid)} ·{' '}
+                            {penaltyReasonLabels[p.reason] ?? 'ödül'}
+                          </span>
+                          <span className="tabular-nums font-semibold">
+                            {p.points}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Who won the set, when a set just ended mid-match. */}
             {setComplete && !matchOver && (
@@ -582,6 +612,7 @@ const penaltyReasonLabels: Record<string, string> = {
   'held-okey': 'elinde okey kaldı',
   'wrong-open': 'yanlış açma',
   'wrong-process': 'yanlış işleme',
+  rekor: 'rekor açış',
 };
 
 /** Formats a round delta with an explicit sign (penalties are positive). */

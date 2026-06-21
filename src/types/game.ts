@@ -23,6 +23,8 @@ export interface TableMeld {
  *    unassisted mode — the move is rejected but the penalty is still written.
  *  - `wrong-process`: attempted to process a tile onto a meld it doesn't fit, in
  *    unassisted mode — likewise rejected but penalized.
+ *  - `rekor`: a REWARD (negative points) — the finisher had a rekor opening this
+ *    round (7+ pairs, or a 153+ first open) and went on to finish it.
  */
 export type PenaltyReason =
   | 'take-open-series'
@@ -31,14 +33,18 @@ export type PenaltyReason =
   | 'discard-processable'
   | 'held-okey'
   | 'wrong-open'
-  | 'wrong-process';
+  | 'wrong-process'
+  | 'rekor';
 
-/** One floor-penalty record (penalty points written TO `uid`). */
+/** One floor-penalty record (points written TO `uid`, folded into the round delta). */
 export interface PenaltyEntry {
-  /** uid of the penalized player (the one who discarded the taken tile). */
+  /** uid of the affected player. */
   uid: string;
   reason: PenaltyReason;
-  /** Penalty points (positive — penalty-based scoring, so it worsens the score). */
+  /**
+   * Points added to the player's round delta. Positive worsens the score (a
+   * penalty); negative improves it (a reward, e.g. the `rekor` bonus).
+   */
   points: number;
 }
 
@@ -142,6 +148,14 @@ export interface GameState {
   doubling: boolean;
   /** Whether floor penalties (cezalar) are enabled for this game. */
   floorPenalty: boolean;
+  /** Whether the rekor reward (rekorlu) is enabled (snapshotted at start). */
+  rekorPenalty?: boolean;
+  /**
+   * Players who made a rekor opening THIS round (uid → true): opened with 7+
+   * pairs, or made a 153+ first open. Reset each re-deal. The reward is granted
+   * at round end only if the rekor opener also finishes the round.
+   */
+  rekor?: Record<string, boolean>;
   /**
    * Assisted mode (snapshotted from lobby settings at start). When false
    * (desteksiz) the server lets invalid opens/processes through as a rejected

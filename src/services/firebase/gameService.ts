@@ -22,6 +22,9 @@ import {
   PENALTY_HELD_OKEY,
   PENALTY_WRONG_OPEN,
   PENALTY_WRONG_PROCESS,
+  REKOR_BONUS,
+  REKOR_MIN_PAIRS,
+  REKOR_MIN_TOTAL,
   scoreRound,
   setMajority,
   setWinnerOf,
@@ -104,6 +107,7 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
     floorPenalty: lobby.settings.gameRules.floorPenalty,
+    rekorPenalty: lobby.settings.gameRules.rekorPenalty,
     assisted: lobby.settings.assisted ?? true,
     ...(paired ? { teams } : {}),
   };
@@ -233,6 +237,7 @@ export async function startSoloTestGame(
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
     floorPenalty: lobby.settings.gameRules.floorPenalty,
+    rekorPenalty: lobby.settings.gameRules.rekorPenalty,
     assisted: lobby.settings.assisted ?? true,
     ...(paired ? { teams } : {}),
   };
@@ -425,6 +430,10 @@ export async function openMelds(
       'take-open-series',
       10,
     );
+    // Rekor: a FIRST open whose meld total reaches 153+ (later melds don't count
+    // toward this). Recorded now, rewarded at round end only if this player wins.
+    const isRekor =
+      !alreadyOpened && game.rekorPenalty === true && total >= REKOR_MIN_TOTAL;
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
       melds: [...existingMelds, ...tableMelds],
@@ -435,6 +444,7 @@ export async function openMelds(
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
       [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
       ...(committedTake ? { pendingTake: deleteField() } : {}),
+      ...(isRekor ? { [`rekor.${uid}`]: true } : {}),
       ...penaltyUpdate,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
@@ -532,6 +542,12 @@ export async function layPairs(
     // open this writes a ×20 floor penalty to the discarder.
     const committedTake = game.pendingTake?.uid === uid;
     const penaltyUpdate = takeOpenPenaltyUpdate(game, uid, 'take-open-pair', 20);
+    // Rekor: opening with 7+ pairs in one go. Rewarded at round end only if this
+    // player also finishes the round.
+    const isRekor =
+      !alreadyOpened &&
+      game.rekorPenalty === true &&
+      groups.length >= REKOR_MIN_PAIRS;
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
       melds: [...existingMelds, ...pairMelds],
@@ -542,6 +558,7 @@ export async function layPairs(
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
       [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
       ...(committedTake ? { pendingTake: deleteField() } : {}),
+      ...(isRekor ? { [`rekor.${uid}`]: true } : {}),
       ...penaltyUpdate,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
@@ -1052,9 +1069,15 @@ export async function discardTile(
           }
         }
       }
-      // Fold this round's floor penalties (cezalar) into the round delta,
-      // including any incurred by this very discard and the held-okey checks.
-      const penaltyLog = [...fullLog, ...heldOkeyPenalties];
+      // Rekor reward: if the finisher made a rekor opening this round (7+ pairs
+      // or a 153+ first open), they get an extra -101. Only when they finish.
+      const rekorBonus: PenaltyEntry[] = [];
+      if (won && (game.rekor ?? {})[uid] === true) {
+        rekorBonus.push({ uid, reason: 'rekor', points: REKOR_BONUS });
+      }
+      // Fold this round's floor penalties (cezalar) and the rekor reward into the
+      // round delta, including any incurred by this very discard / held-okey checks.
+      const penaltyLog = [...fullLog, ...heldOkeyPenalties, ...rekorBonus];
       for (const entry of penaltyLog) {
         delta[entry.uid] = (delta[entry.uid] ?? 0) + entry.points;
       }
@@ -1192,6 +1215,7 @@ async function redealAndUpdate(
     winner: deleteField(),
     pendingTake: deleteField(),
     penaltyLog: deleteField(),
+    rekor: deleteField(),
     ...extra,
   });
   result.hands.forEach((hand, seat) => {

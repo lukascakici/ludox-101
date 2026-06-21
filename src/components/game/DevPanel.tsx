@@ -52,6 +52,7 @@ export function DevPanel({ lobbyId, uid }: DevPanelProps) {
 
           <Label>El ver</Label>
           <Btn onClick={give('meld101')}>101 eli ver</Btn>
+          <Btn onClick={give('meld153')}>Rekor eli (153+ açış)</Btn>
           <Btn onClick={give('pairs')}>Çift eli ver</Btn>
           <Btn onClick={give('rekor')}>Rekor eli (7 çift)</Btn>
           <Btn onClick={give('finish')}>Bitir (1 taş)</Btn>

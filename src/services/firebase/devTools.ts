@@ -31,7 +31,12 @@ import type { GameState, PlayerHand, TableMeld } from '@/types/game';
 const GAMES_COLLECTION = 'games';
 
 /** Preset hands the dev panel can load. */
-export type DevHandKind = 'pairs' | 'meld101' | 'finish' | 'rekor';
+export type DevHandKind =
+  | 'pairs'
+  | 'meld101'
+  | 'meld153'
+  | 'finish'
+  | 'rekor';
 
 let devSeq = 0;
 function devTile(face: TileFace, uid: string): Tile {
@@ -87,6 +92,27 @@ function buildMeld101Hand(uid: string): Tile[] {
   return tiles;
 }
 
+/** Four high groups (13,12,11 ×4 + 10 ×3) = 174 + 6 fillers = 21. First-open ≥153 → rekor. */
+function buildMeld153Hand(uid: string): Tile[] {
+  const tiles: Tile[] = [];
+  for (const color of TILE_COLORS) tiles.push(devTile(num(color, 13), uid)); // 52
+  for (const color of TILE_COLORS) tiles.push(devTile(num(color, 12), uid)); // 48
+  for (const color of TILE_COLORS) tiles.push(devTile(num(color, 11), uid)); // 44
+  for (const color of ['red', 'yellow', 'blue'] as TileColor[]) {
+    tiles.push(devTile(num(color, 10), uid)); // 30 → total 174
+  }
+  const fillers: [TileColor, number][] = [
+    ['red', 1],
+    ['yellow', 3],
+    ['blue', 5],
+    ['black', 2],
+    ['red', 7],
+    ['yellow', 9],
+  ];
+  for (const [color, value] of fillers) tiles.push(devTile(num(color, value), uid));
+  return tiles;
+}
+
 /** 7 red pairs (1–7) + 7 distinct fillers = 21 tiles. Triggers the rekor case. */
 function buildRekorHand(uid: string): Tile[] {
   const tiles: Tile[] = [];
@@ -118,6 +144,8 @@ function buildHand(kind: DevHandKind, uid: string): Tile[] {
       return buildPairsHand(uid);
     case 'meld101':
       return buildMeld101Hand(uid);
+    case 'meld153':
+      return buildMeld153Hand(uid);
     case 'rekor':
       return buildRekorHand(uid);
     case 'finish':
