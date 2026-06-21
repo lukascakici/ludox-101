@@ -16,7 +16,7 @@ import {
 import { db } from './config';
 import { classifyMeld } from '@/game/melds';
 import { deal } from '@/game/deal';
-import { computeOkey } from '@/game/okey';
+import { computeOkey, countOkeys } from '@/game/okey';
 import { handValueOf, tileValue } from '@/game/scoring';
 import {
   buildTileSet,
@@ -182,6 +182,7 @@ export async function devGiveHand(
   await updateDoc(gameRef, {
     [`handCounts.${uid}`]: tiles.length,
     [`handValue.${uid}`]: handValueOf(tiles, game.okey),
+    [`okeyCount.${uid}`]: countOkeys(tiles, game.okey),
     turnIndex: seat,
     turnPhase: 'discard',
     ...(kind === 'finish'
@@ -218,6 +219,7 @@ export async function devSetupTakeOpen(
   await updateDoc(gameRef, {
     [`handCounts.${uid}`]: tiles.length,
     [`handValue.${uid}`]: handValueOf(tiles, game.okey),
+    [`okeyCount.${uid}`]: countOkeys(tiles, game.okey),
     turnIndex: seat,
     turnPhase: 'discard',
     // Not opened yet (penalty only fires on the first open).
@@ -225,6 +227,37 @@ export async function devSetupTakeOpen(
     [`openedWith.${uid}`]: deleteField(),
     floorPenalty: true,
     pendingTake: { uid, tile: taken, fromSeat: String(leftSeat) },
+  });
+}
+
+/**
+ * Adds the round's okey tile to your hand (turn → you, discard phase, penalties
+ * forced on), so discarding it tests the "okeyle atma" floor penalty.
+ */
+export async function devGiveOkeyTile(
+  lobbyId: string,
+  uid: string,
+): Promise<void> {
+  const game = await loadGame(lobbyId);
+  if (!game || !game.okey) return;
+  const seat = game.playerOrder.indexOf(uid);
+  if (seat < 0) return;
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const handRef = doc(gameRef, 'hands', uid);
+  const handSnap = await getDoc(handRef);
+  if (!handSnap.exists()) return;
+
+  const okeyFace = num(game.okey.color, game.okey.value);
+  const tiles = [...(handSnap.data() as PlayerHand).tiles, devTile(okeyFace, uid)];
+  await updateDoc(handRef, { tiles });
+  await updateDoc(gameRef, {
+    [`handCounts.${uid}`]: tiles.length,
+    [`handValue.${uid}`]:
+      (game.handValue?.[uid] ?? 0) + tileValue(okeyFace, game.okey),
+    [`okeyCount.${uid}`]: countOkeys(tiles, game.okey),
+    turnIndex: seat,
+    turnPhase: 'discard',
+    floorPenalty: true,
   });
 }
 
@@ -265,6 +298,7 @@ export async function devAddProcessableTile(
     [`handCounts.${uid}`]: tiles.length,
     [`handValue.${uid}`]:
       (game.handValue?.[uid] ?? 0) + tileValue(face, game.okey),
+    [`okeyCount.${uid}`]: countOkeys(tiles, game.okey),
   });
 }
 
@@ -282,10 +316,12 @@ export async function devRedeal(lobbyId: string): Promise<void> {
 
   const handCounts: Record<string, number> = {};
   const handValue: Record<string, number> = {};
+  const okeyCount: Record<string, number> = {};
   const scores: Record<string, number> = {};
   playerOrder.forEach((uid, seat) => {
     handCounts[uid] = result.hands[seat]?.length ?? 0;
     handValue[uid] = handValueOf(result.hands[seat] ?? [], okey);
+    okeyCount[uid] = countOkeys(result.hands[seat] ?? [], okey);
     scores[uid] = 0;
   });
   const discards: Record<string, Tile[]> = {};
@@ -306,6 +342,7 @@ export async function devRedeal(lobbyId: string): Promise<void> {
     discards,
     handCounts,
     handValue,
+    okeyCount,
     // Dev re-deal starts a fresh match: clear scores, set/round progress too.
     scores,
     roundsPlayed: 0,
@@ -346,6 +383,7 @@ export async function devRandomHand(
   await updateDoc(gameRef, {
     [`handCounts.${uid}`]: tiles.length,
     [`handValue.${uid}`]: handValueOf(tiles, game.okey),
+    [`okeyCount.${uid}`]: countOkeys(tiles, game.okey),
     turnIndex: seat,
     turnPhase: 'discard',
   });

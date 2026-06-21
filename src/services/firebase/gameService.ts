@@ -12,11 +12,14 @@ import {
 } from 'firebase/firestore';
 import { db } from './config';
 import { deal } from '@/game/deal';
-import { computeOkey, isOkeyTile } from '@/game/okey';
+import { computeOkey, countOkeys, isOkeyTile } from '@/game/okey';
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
 import { orderMeld } from '@/game/arrange';
 import {
   handValueOf,
+  PENALTY_DISCARD_OKEY,
+  PENALTY_DISCARD_PROCESSABLE,
+  PENALTY_HELD_OKEY,
   scoreRound,
   setMajority,
   setWinnerOf,
@@ -61,10 +64,12 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
 
   const handCounts: Record<string, number> = {};
   const handValue: Record<string, number> = {};
+  const okeyCount: Record<string, number> = {};
   const scores: Record<string, number> = {};
   playerOrder.forEach((uid, seat) => {
     handCounts[uid] = result.hands[seat]?.length ?? 0;
     handValue[uid] = handValueOf(result.hands[seat] ?? [], okey);
+    okeyCount[uid] = countOkeys(result.hands[seat] ?? [], okey);
     scores[uid] = 0;
   });
 
@@ -85,6 +90,7 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     discards,
     handCounts,
     handValue,
+    okeyCount,
     scores,
     roundsPlayed: 0,
     roundsPerSet: lobby.settings.matchFormat.roundsPerSet,
@@ -187,10 +193,12 @@ export async function startSoloTestGame(
 
   const handCounts: Record<string, number> = {};
   const handValue: Record<string, number> = {};
+  const okeyCount: Record<string, number> = {};
   const scores: Record<string, number> = {};
   playerOrder.forEach((uid, seat) => {
     handCounts[uid] = result.hands[seat]?.length ?? 0;
     handValue[uid] = handValueOf(result.hands[seat] ?? [], okey);
+    okeyCount[uid] = countOkeys(result.hands[seat] ?? [], okey);
     scores[uid] = 0;
   });
   const discards: Record<string, Tile[]> = {};
@@ -210,6 +218,7 @@ export async function startSoloTestGame(
     discards,
     handCounts,
     handValue,
+    okeyCount,
     scores,
     roundsPlayed: 0,
     roundsPerSet: lobby.settings.matchFormat.roundsPerSet,
@@ -386,6 +395,7 @@ export async function openMelds(
       ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'meld' }),
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
+      [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
       ...(committedTake ? { pendingTake: deleteField() } : {}),
       ...penaltyUpdate,
     });
@@ -476,6 +486,7 @@ export async function layPairs(
       ...(alreadyOpened ? {} : { [`openedWith.${uid}`]: 'pair' }),
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
+      [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
       ...(committedTake ? { pendingTake: deleteField() } : {}),
       ...penaltyUpdate,
     });
@@ -551,6 +562,7 @@ export async function processTile(
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]:
         (game.handValue?.[uid] ?? 0) - tileValue(tile.face, game.okey),
+      [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'process',
@@ -692,6 +704,7 @@ export async function drawFromDeck(lobbyId: string, uid: string): Promise<void> 
       [`handCounts.${uid}`]: newHand.length,
       [`handValue.${uid}`]:
         (game.handValue?.[uid] ?? 0) + tileValue(drawn.face, game.okey),
+      [`okeyCount.${uid}`]: countOkeys(newHand, game.okey),
       turnPhase: 'discard',
     });
     tx.set(doc(collection(gameRef, 'moves')), {
@@ -753,6 +766,7 @@ export async function takeFromDiscard(
       [`handCounts.${uid}`]: newHand.length,
       [`handValue.${uid}`]:
         (game.handValue?.[uid] ?? 0) + tileValue(taken.face, game.okey),
+      [`okeyCount.${uid}`]: countOkeys(newHand, game.okey),
       turnPhase: 'discard',
       ...(tentative
         ? { pendingTake: { uid, tile: taken, fromSeat: leftSeat } }
@@ -809,6 +823,7 @@ export async function returnTake(lobbyId: string, uid: string): Promise<void> {
       [`handCounts.${uid}`]: newHand.length,
       [`handValue.${uid}`]:
         (game.handValue?.[uid] ?? 0) - tileValue(pending.tile.face, game.okey),
+      [`okeyCount.${uid}`]: countOkeys(newHand, game.okey),
       turnPhase: 'draw',
       pendingTake: deleteField(),
     });
@@ -879,6 +894,39 @@ export async function discardTile(
     // Otherwise, if the deck is exhausted, this discard ends the hand (no winner).
     const deckExhausted = game.drawCount === 0;
 
+    // Floor penalties triggered BY this discard (cezalar). Both are public — the
+    // discarded tile is visible — so no private-hand read is needed. Skipped on a
+    // winning discard (you finished; discarding the okey to win is the doubling
+    // bonus, not a penalty).
+    const newPenalties: PenaltyEntry[] = [];
+    if (game.floorPenalty && !won) {
+      // Okeyle atma: discarding the okey tile.
+      if (isOkeyTile(tile.face, game.okey)) {
+        newPenalties.push({
+          uid,
+          reason: 'discard-okey',
+          points: PENALTY_DISCARD_OKEY,
+        });
+      }
+      // İşlek taş atma: the discard fits (could be işle'd onto) an open meld.
+      const openMeldsOnTable = (game.melds ?? []).filter(
+        (meld) => meld.kind !== 'pair',
+      );
+      const isProcessable = openMeldsOnTable.some((meld) =>
+        classifyMeld([...meld.tiles.map((t) => t.face), tile.face], game.okey),
+      );
+      if (isProcessable) {
+        newPenalties.push({
+          uid,
+          reason: 'discard-processable',
+          points: PENALTY_DISCARD_PROCESSABLE,
+        });
+      }
+    }
+    const fullLog = newPenalties.length
+      ? [...(game.penaltyLog ?? []), ...newPenalties]
+      : (game.penaltyLog ?? []);
+
     // When the round ends, score it and fold the result into the match totals.
     let endUpdate: Record<
       string,
@@ -903,8 +951,31 @@ export async function discardTile(
         globalDouble,
         ...(won ? { winner: uid } : {}),
       });
-      // Fold this round's floor penalties (cezalar) into the round delta.
-      const penaltyLog = game.penaltyLog ?? [];
+      // Held-okey penalty: an OPENED player still holding the okey when the
+      // round ends. Uses the public okeyCount (no private-hand read); the
+      // discarder's post-discard count comes from their new hand.
+      const heldOkeyPenalties: PenaltyEntry[] = [];
+      if (game.floorPenalty) {
+        const postOkeyCount: Record<string, number> = {
+          ...(game.okeyCount ?? {}),
+          [uid]: countOkeys(newHand, game.okey),
+        };
+        for (const player of game.playerOrder) {
+          if (
+            (game.opened ?? {})[player] === true &&
+            (postOkeyCount[player] ?? 0) >= 1
+          ) {
+            heldOkeyPenalties.push({
+              uid: player,
+              reason: 'held-okey',
+              points: PENALTY_HELD_OKEY,
+            });
+          }
+        }
+      }
+      // Fold this round's floor penalties (cezalar) into the round delta,
+      // including any incurred by this very discard and the held-okey checks.
+      const penaltyLog = [...fullLog, ...heldOkeyPenalties];
       for (const entry of penaltyLog) {
         delta[entry.uid] = (delta[entry.uid] ?? 0) + entry.points;
       }
@@ -977,6 +1048,8 @@ export async function discardTile(
       [`discards.${seat}`]: [...pile, tile],
       [`handCounts.${uid}`]: newHand.length,
       [`handValue.${uid}`]: myNewValue,
+      [`okeyCount.${uid}`]: countOkeys(newHand, game.okey),
+      ...(newPenalties.length ? { penaltyLog: fullLog } : {}),
       ...endUpdate,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
@@ -1009,9 +1082,11 @@ async function redealAndUpdate(
 
   const handCounts: Record<string, number> = {};
   const handValue: Record<string, number> = {};
+  const okeyCount: Record<string, number> = {};
   playerOrder.forEach((uid, seat) => {
     handCounts[uid] = result.hands[seat]?.length ?? 0;
     handValue[uid] = handValueOf(result.hands[seat] ?? [], okey);
+    okeyCount[uid] = countOkeys(result.hands[seat] ?? [], okey);
   });
   const discards: Record<string, Tile[]> = {};
   for (let seat = 0; seat < playerOrder.length; seat++) {
@@ -1030,6 +1105,7 @@ async function redealAndUpdate(
     discards,
     handCounts,
     handValue,
+    okeyCount,
     opened: {},
     openedWith: {},
     melds: [],

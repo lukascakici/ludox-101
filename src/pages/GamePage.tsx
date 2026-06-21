@@ -521,6 +521,9 @@ export function GamePage() {
 const penaltyReasonLabels: Record<string, string> = {
   'take-open-series': 'attığı taşla açıldı (seri)',
   'take-open-pair': 'attığı taşla açıldı (çift)',
+  'discard-okey': 'okeyle attı',
+  'discard-processable': 'işlek taş attı',
+  'held-okey': 'elinde okey kaldı',
 };
 
 /** Formats a round delta with an explicit sign (penalties are positive). */

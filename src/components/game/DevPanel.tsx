@@ -6,6 +6,7 @@ import {
   devGiveHand,
   devMarkOpened,
   devRandomHand,
+  devGiveOkeyTile,
   devRedeal,
   devSetMyTurn,
   devSetupTakeOpen,
@@ -76,6 +77,9 @@ export function DevPanel({ lobbyId, uid }: DevPanelProps) {
           <Label>Ceza</Label>
           <Btn onClick={run(() => devSetupTakeOpen(lobbyId, uid))}>
             Soldan-açma kur
+          </Btn>
+          <Btn onClick={run(() => devGiveOkeyTile(lobbyId, uid))}>
+            Okey taşı ver
           </Btn>
         </div>
       )}

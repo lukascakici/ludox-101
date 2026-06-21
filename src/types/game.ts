@@ -13,11 +13,19 @@ export interface TableMeld {
 
 /**
  * Why a floor penalty (ceza) was written to a player. An evolving set — new
- * conditions (işlek taş atma, açtıktan sonra okey elde kalması, …) are added as
- * new reasons. `take-open-*`: a not-yet-opened player took this player's left
- * discard and used it to FIRST-open (series → ×10, pairs → ×20 of the tile).
+ * conditions are added as new reasons.
+ *  - `take-open-*`: a not-yet-opened player took this player's left discard and
+ *    used it to FIRST-open (series → ×10, pairs → ×20 of the tile's value).
+ *  - `discard-okey`: discarded the okey tile without finishing.
+ *  - `discard-processable`: discarded a tile that fits an open meld on the table.
+ *  - `held-okey`: still held the okey at round end despite having opened.
  */
-export type PenaltyReason = 'take-open-series' | 'take-open-pair';
+export type PenaltyReason =
+  | 'take-open-series'
+  | 'take-open-pair'
+  | 'discard-okey'
+  | 'discard-processable'
+  | 'held-okey';
 
 /** One floor-penalty record (penalty points written TO `uid`). */
 export interface PenaltyEntry {
@@ -128,6 +136,12 @@ export interface GameState {
   doubling: boolean;
   /** Whether floor penalties (cezalar) are enabled for this game. */
   floorPenalty: boolean;
+  /**
+   * Okey tiles held per player (public — there are two okeys in the deck).
+   * Maintained alongside `handValue` on every hand change so the round-end
+   * "held okey" penalty can be applied without reading private hands.
+   */
+  okeyCount?: Record<string, number>;
   /**
    * Floor penalties accrued in the CURRENT round (e.g. someone opened with your
    * discard). Folded into the round delta at round-end and reset each round.

@@ -19,6 +19,15 @@ import type { Tile, TileFace } from './tiles';
 export const NOT_OPENED_PENALTY = 202;
 export const FINISH_BONUS = -101;
 
+/* Floor-penalty (ceza) amounts. The take-to-open penalty is tile-value based
+ * (×10 series / ×20 pairs) and lives in the service; these are the flat ones. */
+/** Discarding the okey tile without finishing. */
+export const PENALTY_DISCARD_OKEY = 101;
+/** Discarding a tile that fits (could be işle'd onto) an open meld on the table. */
+export const PENALTY_DISCARD_PROCESSABLE = 101;
+/** Still holding the okey at round end despite having opened. */
+export const PENALTY_HELD_OKEY = 101;
+
 /** Penalty value a single held tile contributes at round end. */
 export function tileValue(face: TileFace, okey: OkeyMatch | null): number {
   // A false joker stands for the okey's number; the okey tile is itself a

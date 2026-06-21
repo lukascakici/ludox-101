@@ -1,4 +1,10 @@
-import { MAX_VALUE, MIN_VALUE, type TileColor, type TileFace } from './tiles';
+import {
+  MAX_VALUE,
+  MIN_VALUE,
+  type Tile,
+  type TileColor,
+  type TileFace,
+} from './tiles';
 
 /** The tile value/color that is the okey this round (one above the indicator). */
 export interface OkeyMatch {
@@ -24,4 +30,9 @@ export function isOkeyTile(tile: TileFace, okey: OkeyMatch | null): boolean {
     tile.color === okey.color &&
     tile.value === okey.value
   );
+}
+
+/** How many okey tiles a hand holds (there are two okeys in the deck). */
+export function countOkeys(tiles: Tile[], okey: OkeyMatch | null): number {
+  return tiles.reduce((n, t) => n + (isOkeyTile(t.face, okey) ? 1 : 0), 0);
 }
