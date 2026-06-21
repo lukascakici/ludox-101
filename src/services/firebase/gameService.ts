@@ -116,7 +116,11 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
   const batch = writeBatch(db);
   const gameRef = doc(db, GAMES_COLLECTION, lobby.id);
 
-  batch.set(gameRef, { ...gameState, createdAt: serverTimestamp() });
+  batch.set(gameRef, {
+    ...gameState,
+    createdAt: serverTimestamp(),
+    turnStartedAt: serverTimestamp(),
+  });
 
   result.hands.forEach((hand, seat) => {
     const uid = playerOrder[seat];
@@ -245,7 +249,11 @@ export async function startSoloTestGame(
 
   const batch = writeBatch(db);
   const gameRef = doc(db, GAMES_COLLECTION, lobby.id);
-  batch.set(gameRef, { ...gameState, createdAt: serverTimestamp() });
+  batch.set(gameRef, {
+    ...gameState,
+    createdAt: serverTimestamp(),
+    turnStartedAt: serverTimestamp(),
+  });
   result.hands.forEach((hand, seat) => {
     batch.set(doc(gameRef, 'hands', playerOrder[seat]), { tiles: hand });
   });
@@ -1166,6 +1174,9 @@ export async function discardTile(
       [`okeyCount.${uid}`]: countOkeys(newHand, game.okey),
       ...(newPenalties.length ? { penaltyLog: fullLog } : {}),
       ...endUpdate,
+      // Restart the turn clock only when the turn actually passes to a live next
+      // player (not when the round ends — then the scoreboard modal shows).
+      ...(won || deckExhausted ? {} : { turnStartedAt: serverTimestamp() }),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'discard',
@@ -1174,6 +1185,92 @@ export async function discardTile(
       tile: tile.face,
     });
   });
+}
+
+/**
+ * Picks the tile to auto-discard on a turn timeout. The user's chosen behavior is
+ * "draw + discard the drawn tile" — the freshly-drawn tile is the LAST in the
+ * hand — so the player's hand is left unchanged. To honor the no-time-penalty
+ * rule, if that tile would incur a floor penalty (it's the okey, or it fits an
+ * open meld = işlek), fall back to the first tile that wouldn't. Returns the tile
+ * id, or null if the hand can't be discarded from (≤1 tile).
+ */
+function pickTimeoutDiscard(hand: Tile[], game: GameState): string | null {
+  if (hand.length <= 1) return null;
+  const causesPenalty = (tile: Tile): boolean => {
+    if (!game.floorPenalty) return false;
+    if (isOkeyTile(tile.face, game.okey)) return true;
+    return (game.melds ?? [])
+      .filter((meld) => meld.kind !== 'pair')
+      .some((meld) =>
+        classifyMeld([...meld.tiles.map((t) => t.face), tile.face], game.okey),
+      );
+  };
+  const drawn = hand[hand.length - 1];
+  if (!causesPenalty(drawn)) return drawn.id;
+  const safe = hand.find((tile) => !causesPenalty(tile));
+  return (safe ?? drawn).id;
+}
+
+/**
+ * Auto-resolves the current player's turn when their countdown expires: returns a
+ * pending take, draws from the deck if needed, then discards (the drawn tile, or
+ * a penalty-free fallback). NO time penalty is written. Reuses the normal
+ * draw/discard/return transactions, so all scoring and round/set progression run
+ * exactly as for a manual play.
+ *
+ * v1 is driven ONLY by the timed-out player's OWN client (so there is no
+ * cross-client race). Letting OTHER clients fire it after a grace period — to
+ * cover a disconnected player — is deferred to the separate disconnect task.
+ */
+export async function resolveTurnTimeout(
+  lobbyId: string,
+  uid: string,
+): Promise<void> {
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const handRef = doc(gameRef, 'hands', uid);
+
+  const read = async (): Promise<GameState | null> => {
+    const snap = await getDoc(gameRef);
+    return snap.exists() ? (snap.data() as GameState) : null;
+  };
+
+  // Guard: only act while it's genuinely this player's live turn.
+  const start = await read();
+  if (!start || start.status !== 'playing' || start.roundResult) return;
+  if (start.playerOrder[start.turnIndex] !== uid) return;
+
+  // 1. Undo a tentatively-taken left tile (the timed-out player didn't open).
+  if (start.pendingTake?.uid === uid) {
+    await returnTake(lobbyId, uid).catch(() => {});
+  }
+
+  // 2. Make sure a tile has been drawn. If the deck is empty the round is ending
+  //    by exhaustion — leave it to the normal flow.
+  const afterTake = await read();
+  if (!afterTake || afterTake.playerOrder[afterTake.turnIndex] !== uid) return;
+  if (afterTake.turnPhase === 'draw') {
+    if ((afterTake.drawCount ?? 0) === 0) return;
+    await drawFromDeck(lobbyId, uid);
+  }
+
+  // 3. Discard. Re-read so the chosen tile reflects the just-drawn hand.
+  const afterDraw = await read();
+  if (
+    !afterDraw ||
+    afterDraw.status !== 'playing' ||
+    afterDraw.playerOrder[afterDraw.turnIndex] !== uid ||
+    afterDraw.turnPhase !== 'discard'
+  ) {
+    return;
+  }
+  const handSnap = await getDoc(handRef);
+  if (!handSnap.exists()) return;
+  const tileId = pickTimeoutDiscard(
+    (handSnap.data() as PlayerHand).tiles,
+    afterDraw,
+  );
+  if (tileId) await discardTile(lobbyId, uid, tileId);
 }
 
 /**
@@ -1214,6 +1311,7 @@ async function redealAndUpdate(
     starterIndex: result.starterIndex,
     turnIndex: result.starterIndex,
     turnPhase: 'discard',
+    turnStartedAt: serverTimestamp(),
     indicator: result.indicator.face,
     okey,
     drawCount: result.drawPile.length,

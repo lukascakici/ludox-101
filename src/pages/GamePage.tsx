@@ -15,6 +15,7 @@ import {
   openMelds,
   playPendingBotTurns,
   processTile,
+  resolveTurnTimeout,
   returnTake,
   subscribeToGame,
   subscribeToHand,
@@ -126,6 +127,36 @@ export function GamePage() {
     return () => clearTimeout(timer);
   }, [openError]);
 
+  // Turn timeout: when MY own turn's countdown expires, auto-resolve it (draw +
+  // discard the drawn tile). v1 fires only for the local player's own turn, so
+  // there's no cross-client race; covering a disconnected player is deferred to
+  // the disconnect task. A ref prevents a double-fire within this client.
+  const timeoutFiringRef = useRef(false);
+  useEffect(() => {
+    if (!id || !uid || !game || !lobby) return;
+    if (game.status !== 'playing' || game.roundResult) return;
+    if (game.playerOrder[game.turnIndex] !== uid) return;
+    const startedMs = game.turnStartedAt?.toMillis?.() ?? null;
+    if (startedMs == null) return;
+    const deadline = startedMs + (lobby.settings.turnDuration ?? 30) * 1000;
+    const fire = () => {
+      if (timeoutFiringRef.current) return;
+      timeoutFiringRef.current = true;
+      resolveTurnTimeout(id, uid)
+        .catch((err) => console.error('turn timeout resolve failed:', err))
+        .finally(() => {
+          timeoutFiringRef.current = false;
+        });
+    };
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      fire();
+      return;
+    }
+    const timer = setTimeout(fire, remaining);
+    return () => clearTimeout(timer);
+  }, [id, uid, game, lobby]);
+
   // When the whole MATCH ends, the host returns the lobby to waiting so it's
   // reusable and everyone can leave cleanly. (Between rounds the lobby stays in
   // progress — the host starts the next round from the scoreboard.)
@@ -172,6 +203,14 @@ export function GamePage() {
   const currentTurnUid = game.playerOrder[game.turnIndex];
   const isPlaying = game.status === 'playing';
   const isMyTurn = isPlaying && !!uid && uid === currentTurnUid;
+  // Turn countdown: deadline = turn start + the lobby's turn duration. The clock
+  // only runs during a live turn (playing, no round-end modal). turnStartedAt is
+  // briefly absent while the server timestamp resolves.
+  const turnStartedMs = game.turnStartedAt?.toMillis?.() ?? null;
+  const turnDeadlineMs =
+    isPlaying && !game.roundResult && turnStartedMs != null
+      ? turnStartedMs + (lobby.settings.turnDuration ?? 30) * 1000
+      : null;
   const isDrawPhase = isMyTurn && game.turnPhase === 'draw';
   const canDraw = isDrawPhase && game.drawCount > 0;
   const canTake = isDrawPhase;
@@ -445,6 +484,7 @@ export function GamePage() {
         assisted={lobby.settings.assisted ?? true}
         meldTarget={meldTarget}
         pairTarget={pairTarget}
+        turnDeadlineMs={turnDeadlineMs}
         onDraw={handleDraw}
         onTakeDiscard={handleTakeDiscard}
         onDiscard={handleDiscard}

@@ -57,6 +57,8 @@ interface GameTableProps {
   meldTarget: number;
   /** Effective first-open target — pair count (rises under katlama). */
   pairTarget: number;
+  /** Absolute ms deadline for the current turn, or null when no clock runs. */
+  turnDeadlineMs: number | null;
   onDraw: () => void;
   onDiscard: (tileId: string) => void;
   onTakeDiscard: () => void;
@@ -68,6 +70,26 @@ interface GameTableProps {
 }
 
 const RACK_ZONE = '[data-rack-zone]';
+
+/** A calm per-turn countdown (whole seconds). No blinking — only a colour shift
+ *  when time runs low, per the design language. */
+function TurnCountdown({ deadlineMs }: { deadlineMs: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(tick);
+  }, []);
+  const remaining = Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+  return (
+    <span
+      className={`text-xs font-semibold tabular-nums ${
+        remaining <= 5 ? 'text-red-300' : 'text-stone-400'
+      }`}
+    >
+      {remaining}s
+    </span>
+  );
+}
 
 /**
  * The game table in landscape. Seats are placed by the turn cycle so that the
@@ -99,6 +121,7 @@ export function GameTable({
   assisted,
   meldTarget,
   pairTarget,
+  turnDeadlineMs,
   onDraw,
   onDiscard,
   onTakeDiscard,
@@ -483,19 +506,24 @@ export function GameTable({
 
       {/* Rack */}
       <div className="flex shrink-0 flex-col items-center gap-1 px-2 pb-3">
-        <span
-          className={`text-xs ${
-            isMyTurn ? 'font-semibold text-amber-300' : 'text-stone-300'
-          }`}
-        >
-          {!isMyTurn
-            ? `Sıra: ${nameOf(currentTurnUid)}`
-            : hasPendingTake
-              ? 'Soldan taş aldın — aç ya da geri bırak'
-              : canDiscard
-                ? 'Sıra sende — bir taşı sağ köşeye sürükleyip at'
-                : 'Sıra sende'}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-xs ${
+              isMyTurn ? 'font-semibold text-amber-300' : 'text-stone-300'
+            }`}
+          >
+            {!isMyTurn
+              ? `Sıra: ${nameOf(currentTurnUid)}`
+              : hasPendingTake
+                ? 'Soldan taş aldın — aç ya da geri bırak'
+                : canDiscard
+                  ? 'Sıra sende — bir taşı sağ köşeye sürükleyip at'
+                  : 'Sıra sende'}
+          </span>
+          {turnDeadlineMs != null && (
+            <TurnCountdown deadlineMs={turnDeadlineMs} />
+          )}
+        </div>
         <div className="flex items-end justify-center gap-3">
           <Rack
             ref={rackRef}

@@ -12,6 +12,7 @@ import {
   devSetupTakeOpen,
   type DevHandKind,
 } from '@/services/firebase/devTools';
+import { resolveTurnTimeout } from '@/services/firebase/gameService';
 
 interface DevPanelProps {
   lobbyId: string;
@@ -47,6 +48,9 @@ export function DevPanel({ lobbyId, uid }: DevPanelProps) {
         <div className="mt-1 flex max-h-[80vh] w-44 flex-col gap-1 overflow-auto rounded-md border border-amber-400/40 bg-black/80 p-2 text-stone-100 shadow-xl">
           <Label>Sıra & dağıt</Label>
           <Btn onClick={run(() => devSetMyTurn(lobbyId, uid))}>Sıra bana</Btn>
+          <Btn onClick={run(() => resolveTurnTimeout(lobbyId, uid))}>
+            Süremi doldur
+          </Btn>
           <Btn onClick={run(() => devRedeal(lobbyId))}>Yeni dağıt</Btn>
           <Btn onClick={run(() => devRandomHand(lobbyId, uid))}>Rastgele el</Btn>
 

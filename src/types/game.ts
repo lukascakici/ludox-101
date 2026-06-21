@@ -1,3 +1,4 @@
+import type { Timestamp } from 'firebase/firestore';
 import type { Tile, TileFace } from '@/game/tiles';
 import type { OkeyMatch } from '@/game/okey';
 import type { MeldKind } from '@/game/melds';
@@ -107,6 +108,14 @@ export interface GameState {
   /** Index into `playerOrder` whose turn it is. */
   turnIndex: number;
   turnPhase: TurnPhase;
+  /**
+   * Server time the current player's turn began. Clients add the lobby's
+   * turnDuration to get the deadline for the (non-blinking) countdown. Reset
+   * whenever the turn advances to a new player; absent briefly while the server
+   * timestamp resolves. On timeout the current player's own client auto-resolves
+   * the turn (draw + discard the drawn tile).
+   */
+  turnStartedAt?: Timestamp;
   indicator: TileFace;
   okey: OkeyMatch | null;
   /** Tiles left in the draw pile (count is public; contents are not). */
