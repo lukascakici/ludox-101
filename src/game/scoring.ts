@@ -27,6 +27,10 @@ export const PENALTY_DISCARD_OKEY = 101;
 export const PENALTY_DISCARD_PROCESSABLE = 101;
 /** Still holding the okey at round end despite having opened. */
 export const PENALTY_HELD_OKEY = 101;
+/** Attempting an invalid opening (unassisted mode): move rejected, penalty written. */
+export const PENALTY_WRONG_OPEN = 101;
+/** Attempting an invalid process (unassisted mode): move rejected, penalty written. */
+export const PENALTY_WRONG_PROCESS = 101;
 
 /** Penalty value a single held tile contributes at round end. */
 export function tileValue(face: TileFace, okey: OkeyMatch | null): number {

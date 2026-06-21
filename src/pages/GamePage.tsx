@@ -10,6 +10,7 @@ import {
   autoProcess,
   discardTile,
   drawFromDeck,
+  GameActionError,
   layPairs,
   openMelds,
   playPendingBotTurns,
@@ -20,7 +21,11 @@ import {
   takeFromDiscard,
 } from '@/services/firebase/gameService';
 import { classifyMeld, isPair, OPENING_MIN, PAIRS_MIN } from '@/game/melds';
-import { lowestScorer } from '@/game/scoring';
+import {
+  lowestScorer,
+  PENALTY_WRONG_OPEN,
+  PENALTY_WRONG_PROCESS,
+} from '@/game/scoring';
 import { teamLabels } from '@/constants/lobby';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
@@ -175,6 +180,9 @@ export function GamePage() {
     isMyTurn && game.turnPhase === 'discard' && !hasPendingTake;
   const tableMelds = game.melds ?? [];
   const hasOpened = uid != null && (game.opened ?? {})[uid] === true;
+  // Assisted (destekli) blocks invalid moves; unassisted (desteksiz) lets them
+  // through as a rejected-but-penalized move (when floor penalties are on).
+  const assisted = game.assisted ?? lobby.settings.assisted ?? true;
   const myOpenType =
     uid != null ? ((game.openedWith ?? {})[uid] ?? null) : null;
   const pairsAreaExists = tableMelds.some((meld) => meld.kind === 'pair');
@@ -236,6 +244,28 @@ export function GamePage() {
     if (!id || !uid || !game) return;
     setOpenError(null);
 
+    if (!assisted) {
+      // Unassisted: the open area IS your declaration. Send the attempted melds
+      // (groups of 2+ tiles) raw; the server opens them if valid, otherwise it
+      // rejects the open and writes a wrong-open penalty.
+      const attempted = groups.filter((tiles) => tiles.length >= 2);
+      if (attempted.length === 0) {
+        setOpenError('Açmak için açık alana per yerleştir.');
+        return;
+      }
+      try {
+        await openMelds(id, uid, attempted);
+      } catch (err) {
+        if (err instanceof GameActionError && err.code === 'wrong-open') {
+          setOpenError(`Yanlış açma — ${PENALTY_WRONG_OPEN} ceza yazıldı.`);
+        } else {
+          console.error('openMelds failed:', err);
+          setOpenError('Açma başarısız oldu.');
+        }
+      }
+      return;
+    }
+
     // Only contiguous groups that are VALID melds count; everything else stays
     // in hand. You don't need to meld all your tiles — just reach 101 with melds.
     const validMelds = groups
@@ -281,6 +311,27 @@ export function GamePage() {
     if (!id || !uid || !game) return;
     setOpenError(null);
 
+    if (!assisted) {
+      // Unassisted: send the attempted pairs (2-tile groups) raw; server lays
+      // them if valid, otherwise rejects + writes a wrong-open penalty.
+      const attempted = groups.filter((tiles) => tiles.length >= 2);
+      if (attempted.length === 0) {
+        setOpenError('Çift koymak için açık alana taş yerleştir.');
+        return;
+      }
+      try {
+        await layPairs(id, uid, attempted);
+      } catch (err) {
+        if (err instanceof GameActionError && err.code === 'wrong-open') {
+          setOpenError(`Yanlış açma — ${PENALTY_WRONG_OPEN} ceza yazıldı.`);
+        } else {
+          console.error('layPairs failed:', err);
+          setOpenError('Çift koymak başarısız oldu.');
+        }
+      }
+      return;
+    }
+
     // Only contiguous valid pairs count; leave a gap between each pair.
     const pairGroups = groups.filter((tiles) =>
       isPair(
@@ -316,8 +367,13 @@ export function GamePage() {
     try {
       await processTile(id, uid, meldId, tileId);
     } catch (err) {
-      console.error('processTile failed:', err);
-      setOpenError('Bu taş bu pere işlenemez.');
+      if (err instanceof GameActionError && err.code === 'wrong-process') {
+        // Unassisted: the move was rejected but a penalty was written.
+        setOpenError(`Yanlış işleme — ${PENALTY_WRONG_PROCESS} ceza yazıldı.`);
+      } else {
+        console.error('processTile failed:', err);
+        setOpenError('Bu taş bu pere işlenemez.');
+      }
     }
   }
 
@@ -524,6 +580,8 @@ const penaltyReasonLabels: Record<string, string> = {
   'discard-okey': 'okeyle attı',
   'discard-processable': 'işlek taş attı',
   'held-okey': 'elinde okey kaldı',
+  'wrong-open': 'yanlış açma',
+  'wrong-process': 'yanlış işleme',
 };
 
 /** Formats a round delta with an explicit sign (penalties are positive). */

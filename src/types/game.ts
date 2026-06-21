@@ -19,13 +19,19 @@ export interface TableMeld {
  *  - `discard-okey`: discarded the okey tile without finishing.
  *  - `discard-processable`: discarded a tile that fits an open meld on the table.
  *  - `held-okey`: still held the okey at round end despite having opened.
+ *  - `wrong-open`: attempted an invalid opening (bad meld or below threshold) in
+ *    unassisted mode — the move is rejected but the penalty is still written.
+ *  - `wrong-process`: attempted to process a tile onto a meld it doesn't fit, in
+ *    unassisted mode — likewise rejected but penalized.
  */
 export type PenaltyReason =
   | 'take-open-series'
   | 'take-open-pair'
   | 'discard-okey'
   | 'discard-processable'
-  | 'held-okey';
+  | 'held-okey'
+  | 'wrong-open'
+  | 'wrong-process';
 
 /** One floor-penalty record (penalty points written TO `uid`). */
 export interface PenaltyEntry {
@@ -136,6 +142,13 @@ export interface GameState {
   doubling: boolean;
   /** Whether floor penalties (cezalar) are enabled for this game. */
   floorPenalty: boolean;
+  /**
+   * Assisted mode (snapshotted from lobby settings at start). When false
+   * (desteksiz) the server lets invalid opens/processes through as a rejected
+   * move and writes a `wrong-open` / `wrong-process` penalty instead of just
+   * blocking. When true (destekli) invalid moves are blocked with no penalty.
+   */
+  assisted?: boolean;
   /**
    * Okey tiles held per player (public — there are two okeys in the deck).
    * Maintained alongside `handValue` on every hand change so the round-end

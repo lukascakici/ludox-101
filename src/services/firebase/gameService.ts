@@ -20,6 +20,8 @@ import {
   PENALTY_DISCARD_OKEY,
   PENALTY_DISCARD_PROCESSABLE,
   PENALTY_HELD_OKEY,
+  PENALTY_WRONG_OPEN,
+  PENALTY_WRONG_PROCESS,
   scoreRound,
   setMajority,
   setWinnerOf,
@@ -102,6 +104,7 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
     floorPenalty: lobby.settings.gameRules.floorPenalty,
+    assisted: lobby.settings.assisted ?? true,
     ...(paired ? { teams } : {}),
   };
 
@@ -230,6 +233,7 @@ export async function startSoloTestGame(
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
     floorPenalty: lobby.settings.gameRules.floorPenalty,
+    assisted: lobby.settings.assisted ?? true,
     ...(paired ? { teams } : {}),
   };
 
@@ -312,6 +316,27 @@ function takeOpenPenaltyUpdate(
 }
 
 /**
+ * Whether an invalid open/process should be turned into a "rejected but
+ * penalized" move instead of a hard block. Only in unassisted (desteksiz) games
+ * with floor penalties on: there the player gets no helpers, so an invalid
+ * declaration is their mistake to own. Assisted games (or games without floor
+ * penalties) keep blocking with no penalty.
+ */
+function penalizesInvalidMoves(game: GameState): boolean {
+  return game.assisted === false && game.floorPenalty === true;
+}
+
+/** Appends a wrong-move penalty to the round log, written to the actor (`uid`). */
+function wrongMovePenaltyLog(
+  game: GameState,
+  uid: string,
+  reason: 'wrong-open' | 'wrong-process',
+  points: number,
+): PenaltyEntry[] {
+  return [...(game.penaltyLog ?? []), { uid, reason, points }];
+}
+
+/**
  * Opens (lays) melds on the table. Validates each group as a meld and requires
  * the total to reach the opening threshold (≥101). Removes the tiles from the
  * hand, keeping at least one to discard. The turn is NOT advanced — the player
@@ -325,7 +350,7 @@ export async function openMelds(
   const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
   const handRef = doc(gameRef, 'hands', uid);
 
-  await runTransaction(db, async (tx) => {
+  const outcome = await runTransaction(db, async (tx) => {
     const [gameSnap, handSnap] = await Promise.all([
       tx.get(gameRef),
       tx.get(handRef),
@@ -349,12 +374,16 @@ export async function openMelds(
 
     let total = 0;
     const tableMelds: TableMeld[] = [];
-    groups.forEach((group, index) => {
+    let invalidMeld = false;
+    for (const [index, group] of groups.entries()) {
       const info = classifyMeld(
         group.map((tile) => tile.face),
         game.okey,
       );
-      if (!info) throw new GameActionError('invalid-meld');
+      if (!info) {
+        invalidMeld = true;
+        break;
+      }
       total += info.value;
       tableMelds.push({
         id: `${uid}-${existingMelds.length + index}`,
@@ -362,10 +391,19 @@ export async function openMelds(
         kind: info.kind,
         tiles: orderMeld(group, game.okey),
       });
-    });
+    }
     // The 101 threshold only applies to the FIRST opening.
-    if (!alreadyOpened && total < OPENING_MIN) {
-      throw new GameActionError('below-threshold');
+    const belowThreshold = !alreadyOpened && total < OPENING_MIN;
+    if (invalidMeld || belowThreshold) {
+      // Unassisted: don't lay the melds — reject the open but commit a wrong-open
+      // penalty here, then signal the caller to surface a "ceza" toast.
+      if (penalizesInvalidMoves(game)) {
+        tx.update(gameRef, {
+          penaltyLog: wrongMovePenaltyLog(game, uid, 'wrong-open', PENALTY_WRONG_OPEN),
+        });
+        return 'wrong-open' as const;
+      }
+      throw new GameActionError(invalidMeld ? 'invalid-meld' : 'below-threshold');
     }
 
     const openedIds = new Set(groups.flat().map((tile) => tile.id));
@@ -405,7 +443,10 @@ export async function openMelds(
       at: serverTimestamp(),
       total,
     });
+    return undefined;
   });
+  // Penalty already committed above; throw afterwards only to drive the UI toast.
+  if (outcome === 'wrong-open') throw new GameActionError('wrong-open');
 }
 
 /**
@@ -422,7 +463,7 @@ export async function layPairs(
   const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
   const handRef = doc(gameRef, 'hands', uid);
 
-  await runTransaction(db, async (tx) => {
+  const outcome = await runTransaction(db, async (tx) => {
     const [gameSnap, handSnap] = await Promise.all([
       tx.get(gameRef),
       tx.get(handRef),
@@ -438,24 +479,37 @@ export async function layPairs(
     if (game.turnPhase !== 'discard') throw new GameActionError('wrong-phase');
 
     if (groups.length === 0) throw new GameActionError('invalid-pair');
-    for (const group of groups) {
-      if (!isPair(group.map((tile) => tile.face), game.okey)) {
-        throw new GameActionError('invalid-pair');
-      }
-    }
 
     const alreadyOpened = (game.opened ?? {})[uid] === true;
     const existingMelds = game.melds ?? [];
     const pairsAreaExists = existingMelds.some((meld) => meld.kind === 'pair');
 
-    if (!alreadyOpened) {
-      // Opening with pairs requires reaching the pairs threshold.
-      if (groups.length < PAIRS_MIN) {
-        throw new GameActionError('pairs-below-threshold');
-      }
-    } else if ((game.openedWith ?? {})[uid] !== 'pair' && !pairsAreaExists) {
-      // A meld opener may only add pairs once a pairs area exists on the table.
+    // A meld opener may only add pairs once a pairs area exists (structural rule,
+    // always blocked — not a "wrong open" the player can be penalized into).
+    if (
+      alreadyOpened &&
+      (game.openedWith ?? {})[uid] !== 'pair' &&
+      !pairsAreaExists
+    ) {
       throw new GameActionError('no-pairs-area');
+    }
+
+    const invalidPair = groups.some(
+      (group) => !isPair(group.map((tile) => tile.face), game.okey),
+    );
+    // Opening with pairs requires reaching the pairs threshold.
+    const belowThreshold = !alreadyOpened && groups.length < PAIRS_MIN;
+    if (invalidPair || belowThreshold) {
+      // Unassisted: reject the lay but commit a wrong-open penalty here.
+      if (penalizesInvalidMoves(game)) {
+        tx.update(gameRef, {
+          penaltyLog: wrongMovePenaltyLog(game, uid, 'wrong-open', PENALTY_WRONG_OPEN),
+        });
+        return 'wrong-open' as const;
+      }
+      throw new GameActionError(
+        invalidPair ? 'invalid-pair' : 'pairs-below-threshold',
+      );
     }
 
     const pairMelds: TableMeld[] = groups.map((group, index) => ({
@@ -496,7 +550,10 @@ export async function layPairs(
       at: serverTimestamp(),
       pairs: groups.length,
     });
+    return undefined;
   });
+  // Penalty already committed above; throw afterwards only to drive the UI toast.
+  if (outcome === 'wrong-open') throw new GameActionError('wrong-open');
 }
 
 /**
@@ -513,7 +570,7 @@ export async function processTile(
   const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
   const handRef = doc(gameRef, 'hands', uid);
 
-  await runTransaction(db, async (tx) => {
+  const outcome = await runTransaction(db, async (tx) => {
     const [gameSnap, handSnap] = await Promise.all([
       tx.get(gameRef),
       tx.get(handRef),
@@ -543,7 +600,21 @@ export async function processTile(
       combined.map((t) => t.face),
       game.okey,
     );
-    if (!info) throw new GameActionError('invalid-meld');
+    if (!info) {
+      // Unassisted: reject the process but commit a wrong-process penalty here.
+      if (penalizesInvalidMoves(game)) {
+        tx.update(gameRef, {
+          penaltyLog: wrongMovePenaltyLog(
+            game,
+            uid,
+            'wrong-process',
+            PENALTY_WRONG_PROCESS,
+          ),
+        });
+        return 'wrong-process' as const;
+      }
+      throw new GameActionError('invalid-meld');
+    }
 
     const remaining = handTiles.filter((t) => t.id !== tileId);
     if (remaining.length < 1) throw new GameActionError('must-keep-tile');
@@ -571,7 +642,10 @@ export async function processTile(
       meldId,
       tile: tile.face,
     });
+    return undefined;
   });
+  // Penalty already committed above; throw afterwards only to drive the UI toast.
+  if (outcome === 'wrong-process') throw new GameActionError('wrong-process');
 }
 
 /**
@@ -655,6 +729,11 @@ export class GameActionError extends Error {
       | 'meld-not-found'
       | 'must-resolve-take'
       | 'no-pending-take'
+      // Unassisted-mode "rejected but penalized" signals: the penalty was already
+      // committed inside the transaction; this is thrown afterwards only so the UI
+      // can surface a "ceza yazıldı" toast (it does NOT roll back the penalty).
+      | 'wrong-open'
+      | 'wrong-process'
       | 'missing',
   ) {
     super(code);
