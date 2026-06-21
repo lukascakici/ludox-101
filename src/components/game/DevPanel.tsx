@@ -8,6 +8,7 @@ import {
   devRandomHand,
   devRedeal,
   devSetMyTurn,
+  devSetupTakeOpen,
   type DevHandKind,
 } from '@/services/firebase/devTools';
 
@@ -71,6 +72,11 @@ export function DevPanel({ lobbyId, uid }: DevPanelProps) {
             İşlenebilir taş
           </Btn>
           <Btn onClick={run(() => devEmptyDeck(lobbyId))}>Deste bitir</Btn>
+
+          <Label>Ceza</Label>
+          <Btn onClick={run(() => devSetupTakeOpen(lobbyId, uid))}>
+            Soldan-açma kur
+          </Btn>
         </div>
       )}
     </div>

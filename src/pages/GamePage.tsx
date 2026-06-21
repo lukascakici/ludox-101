@@ -437,6 +437,30 @@ export function GamePage() {
 
             <ScoreTable game={game} meUid={uid} nameFor={nameFor} />
 
+            {/* Floor penalties applied this round (already folded into Bu el). */}
+            {game.roundResult?.penalties &&
+              game.roundResult.penalties.length > 0 && (
+                <div className="mt-3 space-y-1 rounded-md bg-red-950/40 px-2 py-1.5">
+                  <p className="text-[11px] uppercase tracking-wide text-red-300/80">
+                    Ceza
+                  </p>
+                  {game.roundResult.penalties.map((p, index) => (
+                    <div
+                      key={`${p.uid}-${index}`}
+                      className="flex items-center justify-between text-sm text-red-200"
+                    >
+                      <span className="truncate">
+                        {nameFor(p.uid)} ·{' '}
+                        {penaltyReasonLabels[p.reason] ?? 'ceza'}
+                      </span>
+                      <span className="tabular-nums font-semibold">
+                        +{p.points}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
             {/* Who won the set, when a set just ended mid-match. */}
             {setComplete && !matchOver && (
               <p className="mt-4 text-center text-sm">
@@ -492,6 +516,12 @@ export function GamePage() {
     </>
   );
 }
+
+/** Turkish reason labels for floor penalties shown on the scoreboard. */
+const penaltyReasonLabels: Record<string, string> = {
+  'take-open-series': 'attığı taşla açıldı (seri)',
+  'take-open-pair': 'attığı taşla açıldı (çift)',
+};
 
 /** Formats a round delta with an explicit sign (penalties are positive). */
 function fmtDelta(delta: number | undefined): string {

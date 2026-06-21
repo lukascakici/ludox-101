@@ -191,6 +191,44 @@ export async function devGiveHand(
 }
 
 /**
+ * Stages the take-to-open floor penalty test: gives you a ≥101 openable hand
+ * PLUS a pending left-take (as if you'd just taken your left neighbour's
+ * discard), with penalties forced on. Then a single "Aç" commits the take and
+ * writes the ×10 penalty to that left neighbour. (Use "Çift Koy" instead to test
+ * the ×20 pairs variant — replace the staged hand with a pairs hand first.)
+ */
+export async function devSetupTakeOpen(
+  lobbyId: string,
+  uid: string,
+): Promise<void> {
+  const game = await loadGame(lobbyId);
+  if (!game) return;
+  const count = game.playerOrder.length;
+  const seat = game.playerOrder.indexOf(uid);
+  if (seat < 0) return;
+  const leftSeat = (seat - 1 + count) % count;
+
+  // An openable 101 hand plus a "taken" tile sitting on the rack on loan.
+  const taken = devTile(num('red', 9), uid);
+  const tiles = [...buildMeld101Hand(uid), taken];
+
+  const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
+  const handRef = doc(gameRef, 'hands', uid);
+  await updateDoc(handRef, { tiles });
+  await updateDoc(gameRef, {
+    [`handCounts.${uid}`]: tiles.length,
+    [`handValue.${uid}`]: handValueOf(tiles, game.okey),
+    turnIndex: seat,
+    turnPhase: 'discard',
+    // Not opened yet (penalty only fires on the first open).
+    [`opened.${uid}`]: deleteField(),
+    [`openedWith.${uid}`]: deleteField(),
+    floorPenalty: true,
+    pendingTake: { uid, tile: taken, fromSeat: String(leftSeat) },
+  });
+}
+
+/**
  * Adds a tile to your hand that can be işle'd onto some existing table meld (to
  * test the marker + auto-işle). Falls back to a generic tile if no meld fits.
  */
@@ -279,6 +317,7 @@ export async function devRedeal(lobbyId: string): Promise<void> {
     roundResult: deleteField(),
     winner: deleteField(),
     pendingTake: deleteField(),
+    penaltyLog: deleteField(),
   });
   result.hands.forEach((hand, seat) => {
     batch.set(doc(gameRef, 'hands', playerOrder[seat]), { tiles: hand });

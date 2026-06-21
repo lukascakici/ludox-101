@@ -31,6 +31,8 @@ import {
 } from '@/types/lobby';
 import type {
   GameState,
+  PenaltyEntry,
+  PenaltyReason,
   PlayerHand,
   RoundResult,
   TableMeld,
@@ -93,6 +95,7 @@ export async function startGame(lobby: Lobby, hostUid: string): Promise<void> {
     openedWith: {},
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
+    floorPenalty: lobby.settings.gameRules.floorPenalty,
     ...(paired ? { teams } : {}),
   };
 
@@ -217,6 +220,7 @@ export async function startSoloTestGame(
     openedWith: {},
     melds: [],
     doubling: lobby.settings.gameRules.doubling,
+    floorPenalty: lobby.settings.gameRules.floorPenalty,
     ...(paired ? { teams } : {}),
   };
 
@@ -274,6 +278,28 @@ export async function playPendingBotTurns(lobbyId: string): Promise<void> {
     await wait(500);
     await discardTile(lobbyId, current, tile.id);
   }
+}
+
+/**
+ * Builds the Firestore update that records the take-to-open floor penalty: when
+ * a not-yet-opened player commits a left-taken tile by OPENING with it, the
+ * discarder (the left neighbour who threw it) owes `tileValue × multiplier`
+ * (×10 series, ×20 pairs). Returns `{}` when penalties are off, there is no
+ * committed take, or the discarder can't be resolved.
+ */
+function takeOpenPenaltyUpdate(
+  game: GameState,
+  uid: string,
+  reason: PenaltyReason,
+  multiplier: number,
+): Record<string, PenaltyEntry[]> {
+  const committed = game.pendingTake?.uid === uid;
+  if (!committed || !game.floorPenalty || !game.pendingTake) return {};
+  const discarder = game.playerOrder[Number(game.pendingTake.fromSeat)];
+  const points = tileValue(game.pendingTake.tile.face, game.okey) * multiplier;
+  if (!discarder || points <= 0) return {};
+  const entry: PenaltyEntry = { uid: discarder, reason, points };
+  return { penaltyLog: [...(game.penaltyLog ?? []), entry] };
 }
 
 /**
@@ -342,11 +368,16 @@ export async function openMelds(
     if (remaining.length < 1) throw new GameActionError('must-keep-tile');
 
     const laidValue = handValueOf(groups.flat(), game.okey);
-    // Opening commits any tentatively-taken left tile.
-    // TODO(penalty): if `committedTake`, the discarder (game.pendingTake.fromSeat)
-    // owes a penalty of tileValue(game.pendingTake.tile) × 10 for a SERIES open.
-    // Only on this first open (pendingTake is never set for already-opened players).
+    // Opening commits any tentatively-taken left tile; doing so on a FIRST open
+    // writes a floor penalty to the discarder (pendingTake is never set for an
+    // already-opened player, so this only ever fires on the first open).
     const committedTake = game.pendingTake?.uid === uid;
+    const penaltyUpdate = takeOpenPenaltyUpdate(
+      game,
+      uid,
+      'take-open-series',
+      10,
+    );
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
       melds: [...existingMelds, ...tableMelds],
@@ -356,6 +387,7 @@ export async function openMelds(
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
       ...(committedTake ? { pendingTake: deleteField() } : {}),
+      ...penaltyUpdate,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'open',
@@ -432,10 +464,10 @@ export async function layPairs(
     if (remaining.length < 1) throw new GameActionError('must-keep-tile');
 
     const laidValue = handValueOf(groups.flat(), game.okey);
-    // Opening with pairs commits any tentatively-taken left tile.
-    // TODO(penalty): if `committedTake`, the discarder (game.pendingTake.fromSeat)
-    // owes a penalty of tileValue(game.pendingTake.tile) × 20 for a PAIRS open.
+    // Opening with pairs commits any tentatively-taken left tile; on a FIRST
+    // open this writes a ×20 floor penalty to the discarder.
     const committedTake = game.pendingTake?.uid === uid;
+    const penaltyUpdate = takeOpenPenaltyUpdate(game, uid, 'take-open-pair', 20);
     tx.update(handRef, { tiles: remaining });
     tx.update(gameRef, {
       melds: [...existingMelds, ...pairMelds],
@@ -445,6 +477,7 @@ export async function layPairs(
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
       ...(committedTake ? { pendingTake: deleteField() } : {}),
+      ...penaltyUpdate,
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'open',
@@ -870,6 +903,11 @@ export async function discardTile(
         globalDouble,
         ...(won ? { winner: uid } : {}),
       });
+      // Fold this round's floor penalties (cezalar) into the round delta.
+      const penaltyLog = game.penaltyLog ?? [];
+      for (const entry of penaltyLog) {
+        delta[entry.uid] = (delta[entry.uid] ?? 0) + entry.points;
+      }
       const totals: Record<string, number> = {};
       for (const player of game.playerOrder) {
         totals[player] = (game.scores?.[player] ?? 0) + (delta[player] ?? 0);
@@ -922,6 +960,7 @@ export async function discardTile(
         ...(matchComplete
           ? { matchComplete: true, ...(matchWinner ? { matchWinner } : {}) }
           : {}),
+        ...(penaltyLog.length ? { penalties: penaltyLog } : {}),
       };
       endUpdate = {
         status: 'finished',
@@ -997,6 +1036,7 @@ async function redealAndUpdate(
     roundResult: deleteField(),
     winner: deleteField(),
     pendingTake: deleteField(),
+    penaltyLog: deleteField(),
     ...extra,
   });
   result.hands.forEach((hand, seat) => {

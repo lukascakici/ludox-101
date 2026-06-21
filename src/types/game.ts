@@ -11,6 +11,23 @@ export interface TableMeld {
   tiles: Tile[];
 }
 
+/**
+ * Why a floor penalty (ceza) was written to a player. An evolving set — new
+ * conditions (işlek taş atma, açtıktan sonra okey elde kalması, …) are added as
+ * new reasons. `take-open-*`: a not-yet-opened player took this player's left
+ * discard and used it to FIRST-open (series → ×10, pairs → ×20 of the tile).
+ */
+export type PenaltyReason = 'take-open-series' | 'take-open-pair';
+
+/** One floor-penalty record (penalty points written TO `uid`). */
+export interface PenaltyEntry {
+  /** uid of the penalized player (the one who discarded the taken tile). */
+  uid: string;
+  reason: PenaltyReason;
+  /** Penalty points (positive — penalty-based scoring, so it worsens the score). */
+  points: number;
+}
+
 /** The outcome of one finished round, kept for the between-rounds scoreboard. */
 export interface RoundResult {
   /** This round's penalty points per player. */
@@ -34,6 +51,8 @@ export interface RoundResult {
   matchComplete?: boolean;
   /** The side that won the match. Present only when `matchComplete`. */
   matchWinner?: string;
+  /** Floor penalties applied during this round (already folded into `delta`). */
+  penalties?: PenaltyEntry[];
 }
 
 /**
@@ -107,6 +126,13 @@ export interface GameState {
   melds: TableMeld[];
   /** Whether doubling (katlama) is on — affects the opening threshold. */
   doubling: boolean;
+  /** Whether floor penalties (cezalar) are enabled for this game. */
+  floorPenalty: boolean;
+  /**
+   * Floor penalties accrued in the CURRENT round (e.g. someone opened with your
+   * discard). Folded into the round delta at round-end and reset each round.
+   */
+  penaltyLog?: PenaltyEntry[];
   /**
    * Team per player uid (0 | 1) in paired (eşli) mode; absent in solo mode.
    * Partners sit across the table (seats 0&2 vs 1&3). Used for team scoring.
