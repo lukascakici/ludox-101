@@ -30,6 +30,7 @@ import {
   PENALTY_WRONG_OPEN,
   PENALTY_WRONG_PROCESS,
 } from '@/game/scoring';
+import { recordMatchHistory } from '@/services/firebase/historyService';
 import { teamLabels } from '@/constants/lobby';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
@@ -231,6 +232,21 @@ export function GamePage() {
       );
     }
   }, [id, game, lobby, uid]);
+
+  // Record the finished match into MY own history — only for registered (non-
+  // anonymous) players. Each player writes their own record; the doc id is the
+  // match's stable createdAt, so it's idempotent across reloads.
+  const historyDoneRef = useRef(false);
+  useEffect(() => {
+    if (!game || !lobby || !user || user.isAnonymous) return;
+    if (game.roundResult?.matchComplete !== true || historyDoneRef.current) {
+      return;
+    }
+    historyDoneRef.current = true;
+    recordMatchHistory(user.uid, lobby, game).catch((err) =>
+      console.error('recordMatchHistory failed:', err),
+    );
+  }, [game, lobby, user]);
 
   if (status === 'unauthenticated') return <Navigate to="/" replace />;
 

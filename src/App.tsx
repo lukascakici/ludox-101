@@ -14,6 +14,9 @@ const CreateLobbyPage = lazy(() =>
 const LobbyPage = lazy(() =>
   import('@/pages/LobbyPage').then((m) => ({ default: m.LobbyPage })),
 );
+const HistoryPage = lazy(() =>
+  import('@/pages/HistoryPage').then((m) => ({ default: m.HistoryPage })),
+);
 const GamePage = lazy(() =>
   import('@/pages/GamePage').then((m) => ({ default: m.GamePage })),
 );
@@ -30,6 +33,7 @@ function App() {
           <Route index element={<LobbyListPage />} />
           <Route path="create" element={<CreateLobbyPage />} />
           <Route path="lobby/:id" element={<LobbyPage />} />
+          <Route path="history" element={<HistoryPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
         <Route path="game/:id" element={<GamePage />} />

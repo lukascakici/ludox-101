@@ -102,6 +102,9 @@ export type GameStatus = 'playing' | 'finished';
  */
 export interface GameState {
   status: GameStatus;
+  /** Server time the game (match) was created — stable per match, used as the
+   *  history record's idempotent id. Written at game start. */
+  createdAt?: Timestamp;
   /** Player uids in seat order. */
   playerOrder: string[];
   starterIndex: number;

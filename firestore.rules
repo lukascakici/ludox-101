@@ -29,6 +29,12 @@ service cloud.firestore {
         && resource.data.hostId == request.auth.uid;
     }
 
+    // Per-user match history. Properly scoped: a user reads/writes ONLY their own
+    // history. Anonymous users simply never write here (the client gates on it).
+    match /users/{uid}/history/{matchId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
     // Game state. Pragmatic / client-authoritative for now (tighten later).
     match /games/{gameId} {
       // Public game state: any signed-in user may read/write.
