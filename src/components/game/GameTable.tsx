@@ -345,12 +345,15 @@ export function GameTable({
         </Link>
       </div>
 
-      {/* Table area. Opponents run along the top edge instead of flanking the
-          centre, where they used to sit on top of the open area and the deck.
-          Pushed out, the whole middle belongs to the melds — which, with the
-          rack, is what actually gets read every turn. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-2 px-4 pb-1">
-        <div className="flex shrink-0 items-start justify-between px-[6%]">
+      {/* Table area. Everyone keeps their seat — left player left, across on
+          top, right player right — but pushed out to their own edge, each with
+          the pile they throw to. They used to sit at 12% and overlap the open
+          area and the deck; out at the rim, the whole middle belongs to the
+          melds, which with the rack is what actually gets read every turn. */}
+      <div className="flex min-h-0 flex-1 gap-3 px-3 pb-1">
+        {/* Left player, hugging the edge — with the pile they throw to, which
+            is also the one you may take from. */}
+        <div className="flex shrink-0 flex-col items-center justify-center gap-2">
           <div data-seat={leftUid}>
             <Seat
               name={nameOf(leftUid)}
@@ -359,28 +362,39 @@ export function GameTable({
               offline={offlineUids.has(leftUid)}
             />
           </div>
-          <div data-seat={acrossUid}>
-            <Seat
-              name={nameOf(acrossUid)}
-              tileCount={handCounts[acrossUid] ?? 0}
-              isTurn={acrossUid === currentTurnUid}
-              offline={offlineUids.has(acrossUid)}
-            />
-          </div>
-          <div data-seat={rightUid}>
-            <Seat
-              name={nameOf(rightUid)}
-              tileCount={handCounts[rightUid] ?? 0}
-              isTurn={rightUid === currentTurnUid}
-              offline={offlineUids.has(rightUid)}
+          <div
+            data-pile={(myIndex + 3) % count}
+            data-return-target
+            className={`rounded-md ${
+              hasPendingTake ? 'ring-2 ring-amber-300' : ''
+            }`}
+          >
+            <DiscardPile
+              tiles={leftPile}
+              takeable={canTakeLeft}
+              onPointerDown={takeDrag.start}
             />
           </div>
         </div>
 
-        {/* Play area: the open melds, with every discard pile gathered around
-            the deck in its thrower's direction — one place to look instead of
-            four corners, and the corners freed for the melds. */}
-        <div className="flex min-h-0 flex-1 items-center justify-center gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {/* Across player, along the top edge. */}
+          <div className="flex shrink-0 items-center justify-center gap-2">
+            <div data-seat={acrossUid}>
+              <Seat
+                name={nameOf(acrossUid)}
+                tileCount={handCounts[acrossUid] ?? 0}
+                isTurn={acrossUid === currentTurnUid}
+                offline={offlineUids.has(acrossUid)}
+              />
+            </div>
+            <div data-pile={(myIndex + 2) % count}>
+              <DiscardPile tiles={pileAt(2)} />
+            </div>
+          </div>
+
+          {/* Play area: the open melds get everything the seats don't need. */}
+          <div className="flex min-h-0 flex-1 items-center justify-center gap-4">
           <div
             data-open-area
             className="flex h-full min-w-0 flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"
@@ -461,51 +475,40 @@ export function GameTable({
               </div>
             </div>
           </div>
-          {/* Centre cluster: the deck with each player's discard pile on the
-              side they sit — mine below, nearest my rack and the drop target. */}
-          <div className="grid shrink-0 items-center justify-items-center gap-1.5">
-            <div
-              data-pile={(myIndex + 2) % count}
-              className="col-start-2 row-start-1"
-            >
-              <DiscardPile tiles={pileAt(2)} />
-            </div>
-            <div
-              data-pile={(myIndex + 3) % count}
-              data-return-target
-              className={`col-start-1 row-start-2 rounded-md ${
-                hasPendingTake ? 'ring-2 ring-amber-300' : ''
-              }`}
-            >
-              <DiscardPile
-                tiles={leftPile}
-                takeable={canTakeLeft}
-                onPointerDown={takeDrag.start}
-              />
-            </div>
-            <div className="col-start-2 row-start-2">
-              <BoardCenter
-                indicator={indicator}
-                drawPileCount={drawPileCount}
-                canDraw={canDraw}
-                onDeckPointerDown={deckDrag.start}
-              />
-            </div>
-            <div
-              data-pile={(myIndex + 1) % count}
-              className="col-start-3 row-start-2"
-            >
-              <DiscardPile tiles={pileAt(1)} />
-            </div>
+          {/* Deck and indicator, with MY discard pile under them: bottom-right
+              of the table, the side I throw to and the closest point to my
+              rack — so the drop target is a short drag away. */}
+          <div className="flex shrink-0 flex-col items-center gap-2">
+            <BoardCenter
+              indicator={indicator}
+              drawPileCount={drawPileCount}
+              canDraw={canDraw}
+              onDeckPointerDown={deckDrag.start}
+            />
             <div
               data-discard-target
               data-pile={(myIndex + 0) % count}
-              className={`col-start-2 row-start-3 rounded-md transition-shadow ${
+              className={`rounded-md transition-shadow ${
                 canDiscard ? 'ring-2 ring-amber-400' : ''
               }`}
             >
               <DiscardPile tiles={pileAt(0)} />
             </div>
+          </div>
+          </div>
+        </div>
+        {/* Right player, hugging the opposite edge. */}
+        <div className="flex shrink-0 flex-col items-center justify-center gap-2">
+          <div data-seat={rightUid}>
+            <Seat
+              name={nameOf(rightUid)}
+              tileCount={handCounts[rightUid] ?? 0}
+              isTurn={rightUid === currentTurnUid}
+              offline={offlineUids.has(rightUid)}
+            />
+          </div>
+          <div data-pile={(myIndex + 1) % count}>
+            <DiscardPile tiles={pileAt(1)} />
           </div>
         </div>
       </div>
