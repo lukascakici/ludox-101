@@ -21,6 +21,18 @@
 }
 
 /*
+ * Touch hardening for the game screen. iOS fires pointercancel (killing a
+ * drag) as soon as it starts a long-press callout, a text selection or a
+ * rubber-band scroll, so all three are disabled on the table surface.
+ */
+@utility touch-play {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+/*
  * Game table surface: a flat checkered ("ekoseli") felt pattern. Two offset
  * hard-stop square layers over felt green — squares, not a gradient/fade.
  */

@@ -329,7 +329,7 @@ export function GameTable({
   }, [meldIdsSig]);
 
   return (
-    <div className="table-felt flex h-dvh flex-col text-stone-100">
+    <div className="table-felt touch-play flex h-dvh flex-col text-stone-100">
       {/* Top bar */}
       <div className="flex shrink-0 items-center justify-between px-4 py-2">
         <span className="text-sm font-semibold tracking-tight">

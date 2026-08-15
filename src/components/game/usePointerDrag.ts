@@ -32,17 +32,26 @@ export function usePointerDrag(onDrop: (x: number, y: number) => void) {
       onDropRef.current(event.clientX, event.clientY);
       setPoint(null);
     }
+    // Touch browsers cancel a gesture they read as a scroll or long-press; drop
+    // the drag instead of leaving it hanging with no further events coming.
+    function cancel() {
+      setPoint(null);
+    }
 
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
     };
   }, [dragging]);
 
   function start(event: ReactPointerEvent) {
     event.preventDefault();
+    // Keep the gesture reporting to this element once the finger moves off it.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     setPoint({ x: event.clientX, y: event.clientY });
   }
 

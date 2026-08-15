@@ -320,11 +320,20 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
       setDrag(null);
     }
 
+    // Touch browsers abort a gesture they decide is a scroll or a long-press by
+    // firing pointercancel and then going silent — without this the drag would
+    // hang forever with the tile lifted out of its slot.
+    function onCancel() {
+      setDrag(null);
+    }
+
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
     };
   }, [drag?.fromIndex]);
 
@@ -332,6 +341,9 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
     const tile = slots[index];
     if (!tile) return;
     event.preventDefault();
+    // Capture the pointer so the gesture keeps reporting to us even once the
+    // finger leaves the slot — on touch the events would otherwise retarget.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     setDrag({ fromIndex: index, tile, x: event.clientX, y: event.clientY });
   }
 
@@ -339,7 +351,10 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
 
   return (
     <div className="select-none">
-      <div data-rack-zone className="overflow-x-auto">
+      {/* touch-none on the whole rack: a per-slot rule let the browser claim the
+          gesture as a scroll before the drag ever started. (The rack no longer
+          scrolls horizontally — the stage scales it to fit instead.) */}
+      <div data-rack-zone className="touch-none">
         <div className="w-fit rounded-lg bg-amber-900 p-2 shadow-xl ring-1 ring-black/40">
           <div className="space-y-1.5">
             {rows.map((row, rowIndex) => (
@@ -357,7 +372,7 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
                       data-slot-index={slotIndex}
                       onPointerDown={(e) => handlePointerDown(e, slotIndex)}
                       className={`relative rounded-md ${
-                        filled ? 'cursor-grab touch-none' : ''
+                        filled ? 'cursor-grab' : ''
                       } ${
                         tile && tile.id === highlightTileId
                           ? 'ring-2 ring-amber-300 ring-offset-1 ring-offset-amber-900'
