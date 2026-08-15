@@ -575,8 +575,32 @@ export function GameTable({
           )}
         </div>
         <div className="flex items-end justify-center gap-3">
-          <Rack
-            ref={rackRef}
+          {/* The opening-progress badges ride on the rack's top-right corner
+              rather than heading the button column, which was crowded. */}
+          <div className="relative">
+            <div className="absolute -top-6 right-0 flex gap-1 text-xs">
+              <span
+                className={`rounded-md border px-2 py-0.5 font-semibold tabular-nums ${
+                  score.series >= meldTarget
+                    ? 'border-amber-400 text-amber-300'
+                    : 'border-stone-100/30 text-stone-200'
+                }`}
+              >
+                {score.series}/{meldTarget}
+              </span>
+              <span
+                className={`rounded-md border px-2 py-0.5 font-semibold tabular-nums ${
+                  score.pairs >= pairTarget
+                    ? 'border-amber-400 text-amber-300'
+                    : 'border-stone-100/30 text-stone-200'
+                }`}
+              >
+                {score.pairs}/{pairTarget}
+              </span>
+            </div>
+
+            <Rack
+              ref={rackRef}
             tiles={hand}
             okey={okey}
             canDiscard={canDiscard}
@@ -589,34 +613,15 @@ export function GameTable({
             onArrange={setCurrentGroups}
             incomingSlot={pendingSlot}
             onIncomingPlaced={() => setPendingSlot(null)}
-            {...(currentUid
-              ? { storageKey: `ludox-rack:${lobby.id}:${currentUid}` }
-              : {})}
-          />
+              {...(currentUid
+                ? { storageKey: `ludox-rack:${lobby.id}:${currentUid}` }
+                : {})}
+            />
+          </div>
 
-          <div className="flex flex-col gap-2">
-            {/* Açma ilerlemesi (x/hedef) — hedef katlamada yükselir. */}
-            <div className="flex gap-1 text-xs">
-              <span
-                className={`rounded-md border px-2 py-1 font-semibold tabular-nums ${
-                  score.series >= meldTarget
-                    ? 'border-amber-400 text-amber-300'
-                    : 'border-stone-100/30 text-stone-200'
-                }`}
-              >
-                {score.series}/{meldTarget}
-              </span>
-              <span
-                className={`rounded-md border px-2 py-1 font-semibold tabular-nums ${
-                  score.pairs >= pairTarget
-                    ? 'border-amber-400 text-amber-300'
-                    : 'border-stone-100/30 text-stone-200'
-                }`}
-              >
-                {score.pairs}/{pairTarget}
-              </span>
-            </div>
-
+          {/* Actions, stretched to the rack's height and split evenly between
+              however many are showing, so the column never outgrows the rack. */}
+          <div className="flex flex-col gap-1.5 self-stretch [&>button]:min-h-0 [&>button]:flex-1 [&>button]:py-0">
             {assisted && (
               <button
                 type="button"
