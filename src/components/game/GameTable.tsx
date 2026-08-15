@@ -345,87 +345,45 @@ export function GameTable({
         </Link>
       </div>
 
-      {/* Table area */}
-      <div className="relative flex-1">
-        {/* Opponent seats */}
-        <div
-          data-seat={acrossUid}
-          className="absolute left-1/2 top-3 -translate-x-1/2"
-        >
-          <Seat
-            name={nameOf(acrossUid)}
-            tileCount={handCounts[acrossUid] ?? 0}
-            isTurn={acrossUid === currentTurnUid}
-            offline={offlineUids.has(acrossUid)}
-          />
-        </div>
-        <div
-          data-seat={leftUid}
-          className="absolute left-[12%] top-1/2 -translate-y-1/2"
-        >
-          <Seat
-            name={nameOf(leftUid)}
-            tileCount={handCounts[leftUid] ?? 0}
-            isTurn={leftUid === currentTurnUid}
-            offline={offlineUids.has(leftUid)}
-          />
-        </div>
-        <div
-          data-seat={rightUid}
-          className="absolute right-[12%] top-1/2 -translate-y-1/2"
-        >
-          <Seat
-            name={nameOf(rightUid)}
-            tileCount={handCounts[rightUid] ?? 0}
-            isTurn={rightUid === currentTurnUid}
-            offline={offlineUids.has(rightUid)}
-          />
+      {/* Table area. Opponents run along the top edge instead of flanking the
+          centre, where they used to sit on top of the open area and the deck.
+          Pushed out, the whole middle belongs to the melds — which, with the
+          rack, is what actually gets read every turn. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 px-4 pb-1">
+        <div className="flex shrink-0 items-start justify-between px-[6%]">
+          <div data-seat={leftUid}>
+            <Seat
+              name={nameOf(leftUid)}
+              tileCount={handCounts[leftUid] ?? 0}
+              isTurn={leftUid === currentTurnUid}
+              offline={offlineUids.has(leftUid)}
+            />
+          </div>
+          <div data-seat={acrossUid}>
+            <Seat
+              name={nameOf(acrossUid)}
+              tileCount={handCounts[acrossUid] ?? 0}
+              isTurn={acrossUid === currentTurnUid}
+              offline={offlineUids.has(acrossUid)}
+            />
+          </div>
+          <div data-seat={rightUid}>
+            <Seat
+              name={nameOf(rightUid)}
+              tileCount={handCounts[rightUid] ?? 0}
+              isTurn={rightUid === currentTurnUid}
+              offline={offlineUids.has(rightUid)}
+            />
+          </div>
         </div>
 
-        {/* Discard piles at the corners (each toward the thrower's right).
-            Your own pile (bottom-right) is also the discard drop target. */}
-        <div
-          data-discard-target
-          data-pile={(myIndex + 0) % count}
-          className={`absolute left-[80%] top-[80%] -translate-x-1/2 -translate-y-1/2 rounded-md transition-shadow ${
-            canDiscard ? 'ring-2 ring-amber-400' : ''
-          }`}
-        >
-          <DiscardPile tiles={pileAt(0)} />
-        </div>
-        <div
-          data-pile={(myIndex + 1) % count}
-          className="absolute left-[80%] top-[20%] -translate-x-1/2 -translate-y-1/2"
-        >
-          <DiscardPile tiles={pileAt(1)} />
-        </div>
-        <div
-          data-pile={(myIndex + 2) % count}
-          className="absolute left-[20%] top-[20%] -translate-x-1/2 -translate-y-1/2"
-        >
-          <DiscardPile tiles={pileAt(2)} />
-        </div>
-        <div
-          data-pile={(myIndex + 3) % count}
-          data-return-target
-          className={`absolute left-[20%] top-[80%] -translate-x-1/2 -translate-y-1/2 rounded-md ${
-            hasPendingTake ? 'ring-2 ring-amber-300' : ''
-          }`}
-        >
-          <DiscardPile
-            tiles={leftPile}
-            takeable={canTakeLeft}
-            onPointerDown={takeDrag.start}
-          />
-        </div>
-
-        {/* Center: the opening area (where melds will be laid) + deck/indicator.
-            The container is click-through so corner piles stay droppable; only
-            the deck re-enables pointer events. */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-[13%]">
+        {/* Play area: the open melds, with every discard pile gathered around
+            the deck in its thrower's direction — one place to look instead of
+            four corners, and the corners freed for the melds. */}
+        <div className="flex min-h-0 flex-1 items-center justify-center gap-4">
           <div
             data-open-area
-            className="pointer-events-auto flex h-[58%] min-h-44 max-h-72 max-w-4xl flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"
+            className="flex h-full min-w-0 flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"
           >
             {/* Perler (runs/groups) — width grows with how many melds it holds. */}
             <div
@@ -467,19 +425,21 @@ export function GameTable({
             {/* Divider */}
             <div className="w-px shrink-0 self-stretch bg-stone-100/15" />
 
-            {/* Çiftler (pairs) — width grows with how many pairs it holds. */}
+            {/* Çiftler (pairs) — grows only once pairs exist. An empty column
+                claiming half the table was the single biggest waste of space;
+                now it's a label-width sliver until someone lays a pair. */}
             <div
-              className="flex min-w-0 basis-0 flex-col"
-              style={{ flexGrow: Math.max(pairMelds.length, 1) }}
+              className="flex min-w-[68px] basis-0 flex-col"
+              style={{ flexGrow: pairMelds.length }}
             >
               <span className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
                 Çiftler
               </span>
               <div className="flex flex-1 flex-wrap content-start gap-1 overflow-hidden">
                 {pairMelds.length === 0 ? (
-                  <span className="m-auto text-xs text-stone-500">
-                    Henüz çift yok
-                  </span>
+                  // No placeholder text — the column is too narrow for one, and
+                  // the heading already says what's missing.
+                  null
                 ) : (
                   pairMelds.map((meld) => (
                     <div
@@ -501,13 +461,51 @@ export function GameTable({
               </div>
             </div>
           </div>
-          <div className="pointer-events-auto self-center">
-            <BoardCenter
-              indicator={indicator}
-              drawPileCount={drawPileCount}
-              canDraw={canDraw}
-              onDeckPointerDown={deckDrag.start}
-            />
+          {/* Centre cluster: the deck with each player's discard pile on the
+              side they sit — mine below, nearest my rack and the drop target. */}
+          <div className="grid shrink-0 items-center justify-items-center gap-1.5">
+            <div
+              data-pile={(myIndex + 2) % count}
+              className="col-start-2 row-start-1"
+            >
+              <DiscardPile tiles={pileAt(2)} />
+            </div>
+            <div
+              data-pile={(myIndex + 3) % count}
+              data-return-target
+              className={`col-start-1 row-start-2 rounded-md ${
+                hasPendingTake ? 'ring-2 ring-amber-300' : ''
+              }`}
+            >
+              <DiscardPile
+                tiles={leftPile}
+                takeable={canTakeLeft}
+                onPointerDown={takeDrag.start}
+              />
+            </div>
+            <div className="col-start-2 row-start-2">
+              <BoardCenter
+                indicator={indicator}
+                drawPileCount={drawPileCount}
+                canDraw={canDraw}
+                onDeckPointerDown={deckDrag.start}
+              />
+            </div>
+            <div
+              data-pile={(myIndex + 1) % count}
+              className="col-start-3 row-start-2"
+            >
+              <DiscardPile tiles={pileAt(1)} />
+            </div>
+            <div
+              data-discard-target
+              data-pile={(myIndex + 0) % count}
+              className={`col-start-2 row-start-3 rounded-md transition-shadow ${
+                canDiscard ? 'ring-2 ring-amber-400' : ''
+              }`}
+            >
+              <DiscardPile tiles={pileAt(0)} />
+            </div>
           </div>
         </div>
       </div>
