@@ -373,6 +373,32 @@ export function GameTable({
         <DiscardPile tiles={pileAt(1)} />
       </div>
 
+      {/* The two near piles hang in the bottom corners, on the same left-4 /
+          right-4 rails as the far pair above them, so the four read as one
+          frame around the table rather than four loose tiles. */}
+      <div
+        data-pile={(myIndex + 3) % count}
+        data-return-target
+        className={`absolute bottom-16 left-4 rounded-md ${
+          hasPendingTake ? 'ring-2 ring-amber-300' : ''
+        }`}
+      >
+        <DiscardPile
+          tiles={leftPile}
+          takeable={canTakeLeft}
+          onPointerDown={takeDrag.start}
+        />
+      </div>
+      <div
+        data-discard-target
+        data-pile={(myIndex + 0) % count}
+        className={`absolute bottom-16 right-4 rounded-md transition-shadow ${
+          canDiscard ? 'ring-2 ring-amber-400' : ''
+        }`}
+      >
+        <DiscardPile tiles={pileAt(0)} />
+      </div>
+
       <div className="relative flex min-h-0 flex-1 items-center px-[15%] pt-5">
         <div
           data-seat={leftUid}
@@ -511,22 +537,6 @@ export function GameTable({
           )}
         </div>
         <div className="flex items-end justify-center gap-3">
-          {/* Left neighbour's pile sits beside my rack: it's the one I may take
-              from and hand back to, so it belongs within reach of the tiles. */}
-          <div
-            data-pile={(myIndex + 3) % count}
-            data-return-target
-            className={`mb-2 rounded-md ${
-              hasPendingTake ? 'ring-2 ring-amber-300' : ''
-            }`}
-          >
-            <DiscardPile
-              tiles={leftPile}
-              takeable={canTakeLeft}
-              onPointerDown={takeDrag.start}
-            />
-          </div>
-
           <Rack
             ref={rackRef}
             tiles={hand}
@@ -656,17 +666,6 @@ export function GameTable({
             )}
           </div>
 
-          {/* My own pile, past the action buttons — the far corner on the side
-              I throw to, and the drop target for discarding. */}
-          <div
-            data-discard-target
-            data-pile={(myIndex + 0) % count}
-            className={`mb-2 rounded-md transition-shadow ${
-              canDiscard ? 'ring-2 ring-amber-400' : ''
-            }`}
-          >
-            <DiscardPile tiles={pileAt(0)} />
-          </div>
         </div>
       </div>
 
