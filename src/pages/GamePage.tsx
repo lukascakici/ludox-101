@@ -35,9 +35,11 @@ import { teamLabels } from '@/constants/lobby';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
 import { DevPanel } from '@/components/game/DevPanel';
+import { PenaltyToasts } from '@/components/game/PenaltyToast';
+import { Tile as TileView } from '@/components/game/Tile';
 import { RotateDevicePrompt } from '@/components/game/RotateDevicePrompt';
 import type { Lobby } from '@/types/lobby';
-import type { GameState } from '@/types/game';
+import type { GameState, PenaltyEntry } from '@/types/game';
 import type { Tile } from '@/game/tiles';
 import type { Timestamp } from 'firebase/firestore';
 
@@ -46,9 +48,36 @@ const HEARTBEAT_MS = 8000;
 const OFFLINE_MS = 20000;
 /** Extra wait past the turn deadline before a driver fires for an offline player. */
 const OFFLINE_FIRE_GRACE = 3000;
+/** Turn length for a player who was ALREADY offline when their turn began. */
+const ABSENT_TURN_SECONDS = 15;
 /** Bots auto-play via their own loop; only humans are subject to presence. */
 const isHuman = (u: string | undefined): u is string =>
   !!u && !u.startsWith('bot');
+
+/**
+ * How long the current turn lasts, in ms. A player who drops mid-turn still
+ * gets the FULL clock for that turn; if they haven't come back by the time the
+ * next one starts, their turns shorten to `ABSENT_TURN_SECONDS` so the table
+ * isn't held up. Derived purely from presence + `turnStartedAt` — every client
+ * computes the same value, so no extra state (and no race) in the game doc.
+ */
+function turnDurationMs(
+  currentUid: string | undefined,
+  turnStartedMs: number | null,
+  presence: Record<string, Timestamp>,
+  durationSeconds: number,
+): number {
+  if (!isHuman(currentUid) || turnStartedMs == null) {
+    return durationSeconds * 1000;
+  }
+  const seen = presence[currentUid]?.toMillis?.() ?? null;
+  // Heartbeat was already stale when this turn began -> they sat out the
+  // previous one too. (A missing stamp means "unknown", not "absent".)
+  const absentAtTurnStart = seen != null && turnStartedMs - seen > OFFLINE_MS;
+  return absentAtTurnStart
+    ? Math.min(durationSeconds, ABSENT_TURN_SECONDS) * 1000
+    : durationSeconds * 1000;
+}
 
 function FullScreenMessage({ children }: { children: React.ReactNode }) {
   return (
@@ -163,6 +192,29 @@ export function GamePage() {
     return () => clearTimeout(timer);
   }, [openError]);
 
+  // Live penalty announcements. penaltyLog only ever grows within a round and is
+  // cleared when the next one deals, so anything past what we've already shown is
+  // new. On first sight of a game — and after that reset — we sync silently so
+  // old penalties don't replay. Entries are copied into state rather than read
+  // back from the log, so a toast survives the round reset that clears it.
+  const [penaltyToasts, setPenaltyToasts] = useState<
+    { id: string; entry: PenaltyEntry }[]
+  >([]);
+  const announcedRef = useRef<number | null>(null);
+  const toastSeqRef = useRef(0);
+  useEffect(() => {
+    if (!game) return;
+    const log = game.penaltyLog ?? [];
+    const announced = announcedRef.current;
+    announcedRef.current = log.length;
+    if (announced == null || log.length <= announced) return;
+    const fresh = log.slice(announced).map((entry) => ({
+      id: String(toastSeqRef.current++),
+      entry,
+    }));
+    setPenaltyToasts((prev) => [...prev, ...fresh]);
+  }, [game]);
+
   // Turn timeout. On expiry the turn is auto-resolved (draw + discard the drawn
   // tile). Two cases: (a) MY own turn — I fire it; (b) it's a DISCONNECTED
   // player's turn and I'm the designated driver — I fire it for them after a
@@ -174,8 +226,13 @@ export function GamePage() {
     if (game.status !== 'playing' || game.roundResult) return;
     const startedMs = game.turnStartedAt?.toMillis?.() ?? null;
     if (startedMs == null) return;
-    const duration = (lobby.settings.turnDuration ?? 30) * 1000;
     const current = game.playerOrder[game.turnIndex];
+    const duration = turnDurationMs(
+      current,
+      startedMs,
+      presence,
+      lobby.settings.turnDuration ?? 30,
+    );
     const now = Date.now();
     const isOffline = (u: string): boolean => {
       if (!isHuman(u)) return false;
@@ -279,13 +336,20 @@ export function GamePage() {
   const currentTurnUid = game.playerOrder[game.turnIndex];
   const isPlaying = game.status === 'playing';
   const isMyTurn = isPlaying && !!uid && uid === currentTurnUid;
-  // Turn countdown: deadline = turn start + the lobby's turn duration. The clock
-  // only runs during a live turn (playing, no round-end modal). turnStartedAt is
-  // briefly absent while the server timestamp resolves.
+  // Turn countdown: deadline = turn start + the effective turn duration (which
+  // shortens for a player who was already offline when the turn began). The
+  // clock only runs during a live turn (playing, no round-end modal).
+  // turnStartedAt is briefly absent while the server timestamp resolves.
   const turnStartedMs = game.turnStartedAt?.toMillis?.() ?? null;
   const turnDeadlineMs =
     isPlaying && !game.roundResult && turnStartedMs != null
-      ? turnStartedMs + (lobby.settings.turnDuration ?? 30) * 1000
+      ? turnStartedMs +
+        turnDurationMs(
+          currentTurnUid,
+          turnStartedMs,
+          presence,
+          lobby.settings.turnDuration ?? 30,
+        )
       : null;
   // Players whose heartbeat has gone stale (humans only) — shown as "bağlantısı
   // koptu" and auto-played by the driver. `nowTick` keeps this fresh over time.
@@ -543,6 +607,19 @@ export function GamePage() {
 
   return (
     <>
+      <PenaltyToasts
+        items={penaltyToasts.map((toast) => ({
+          id: toast.id,
+          entry: toast.entry,
+          name: nameFor(toast.entry.uid),
+          label: penaltyReasonLabels[toast.entry.reason] ?? 'ceza',
+        }))}
+        onExpire={(expiredId) =>
+          setPenaltyToasts((prev) =>
+            prev.filter((toast) => toast.id !== expiredId),
+          )
+        }
+      />
       <GameTable
         lobby={lobby}
         currentUid={uid}
@@ -641,11 +718,14 @@ export function GamePage() {
                       {cezalar.map((p, index) => (
                         <div
                           key={`${p.uid}-${index}`}
-                          className="flex items-center justify-between text-sm text-red-200"
+                          className="flex items-center justify-between gap-2 text-sm text-red-200"
                         >
-                          <span className="truncate">
-                            {nameFor(p.uid)} ·{' '}
-                            {penaltyReasonLabels[p.reason] ?? 'ceza'}
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate">
+                              {nameFor(p.uid)} ·{' '}
+                              {penaltyReasonLabels[p.reason] ?? 'ceza'}
+                            </span>
+                            {p.tile && <TileView tile={p.tile} size="sm" />}
                           </span>
                           <span className="tabular-nums font-semibold">
                             +{p.points}
@@ -662,11 +742,14 @@ export function GamePage() {
                       {oduller.map((p, index) => (
                         <div
                           key={`${p.uid}-${index}`}
-                          className="flex items-center justify-between text-sm text-emerald-200"
+                          className="flex items-center justify-between gap-2 text-sm text-emerald-200"
                         >
-                          <span className="truncate">
-                            {nameFor(p.uid)} ·{' '}
-                            {penaltyReasonLabels[p.reason] ?? 'ödül'}
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate">
+                              {nameFor(p.uid)} ·{' '}
+                              {penaltyReasonLabels[p.reason] ?? 'ödül'}
+                            </span>
+                            {p.tile && <TileView tile={p.tile} size="sm" />}
                           </span>
                           <span className="tabular-nums font-semibold">
                             {p.points}
@@ -769,27 +852,61 @@ function ScoreTable({
 }) {
   const deltaOf = (uid: string) => game.roundResult?.delta[uid];
   const totalOf = (uid: string) => game.scores?.[uid] ?? 0;
+  // Penalties (and the negative rekor reward) charged to this player this round.
+  const penaltyOf = (uid: string) =>
+    (game.roundResult?.penalties ?? []).reduce(
+      (sum, entry) => (entry.uid === uid ? sum + entry.points : sum),
+      0,
+    );
+  // "Elde kalan": the hand-only part of the round. Rounds scored before
+  // handDelta existed fall back to deriving it from the total.
+  const handOf = (uid: string) => {
+    const total = deltaOf(uid);
+    if (total == null) return undefined;
+    return game.roundResult?.handDelta?.[uid] ?? total - penaltyOf(uid);
+  };
 
   const header = (
-    <div className="flex items-center justify-between px-2 text-[11px] uppercase tracking-wide text-stone-400">
-      <span>{game.teams ? 'Takım' : 'Oyuncu'}</span>
-      <span className="flex gap-3">
+    <div className="flex items-center justify-between gap-2 px-2 text-[11px] uppercase tracking-wide text-stone-400">
+      <span className="truncate">{game.teams ? 'Takım' : 'Oyuncu'}</span>
+      <span className="flex shrink-0 gap-2">
+        <span className="w-12 text-right">Elde</span>
+        <span className="w-12 text-right">Ceza</span>
         <span className="w-12 text-right">Bu el</span>
         <span className="w-12 text-right">Toplam</span>
       </span>
     </div>
   );
 
+  /** Penalty cell: silent at zero, red when charged, green for a reward. */
+  const penaltyCell = (points: number) => (
+    <span
+      className={`w-12 text-right ${
+        points > 0
+          ? 'text-red-300'
+          : points < 0
+            ? 'text-emerald-300'
+            : 'text-stone-500'
+      }`}
+    >
+      {points === 0 ? '–' : fmtDelta(points)}
+    </span>
+  );
+
   const playerRow = (uid: string, indent = false) => (
     <div
       key={uid}
-      className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm ${
+      className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm ${
         uid === meUid ? 'bg-white/10' : ''
       } ${indent ? 'pl-4 text-stone-300' : ''}`}
     >
       <span className="truncate">{nameFor(uid)}</span>
-      <span className="flex gap-3 tabular-nums">
+      <span className="flex shrink-0 gap-2 tabular-nums">
         <span className="w-12 text-right text-stone-400">
+          {fmtDelta(handOf(uid))}
+        </span>
+        {penaltyCell(penaltyOf(uid))}
+        <span className="w-12 text-right text-stone-300">
           {fmtDelta(deltaOf(uid))}
         </span>
         <span className="w-12 text-right font-semibold">{totalOf(uid)}</span>
@@ -817,22 +934,35 @@ function ScoreTable({
       const members = game.playerOrder.filter((uid) => teams[uid] === team);
       const teamTotal = members.reduce((sum, uid) => sum + totalOf(uid), 0);
       const deltas = members.map((uid) => deltaOf(uid));
-      const teamDelta = deltas.some((d) => d == null)
-        ? undefined
-        : deltas.reduce<number>((sum, d) => sum + (d ?? 0), 0);
-      return { team, members, teamTotal, teamDelta };
+      const scored = !deltas.some((d) => d == null);
+      const teamDelta = scored
+        ? deltas.reduce<number>((sum, d) => sum + (d ?? 0), 0)
+        : undefined;
+      const teamHand = scored
+        ? members.reduce((sum, uid) => sum + (handOf(uid) ?? 0), 0)
+        : undefined;
+      const teamPenalty = members.reduce(
+        (sum, uid) => sum + penaltyOf(uid),
+        0,
+      );
+      return { team, members, teamTotal, teamDelta, teamHand, teamPenalty };
     })
     .sort((a, b) => a.teamTotal - b.teamTotal);
 
   return (
     <div className="mt-4 space-y-3">
       {header}
-      {teamData.map(({ team, members, teamTotal, teamDelta }) => (
+      {teamData.map(
+        ({ team, members, teamTotal, teamDelta, teamHand, teamPenalty }) => (
         <div key={team} className="space-y-1">
-          <div className="flex items-center justify-between rounded-md bg-white/5 px-2 py-1.5 text-sm">
-            <span className="font-semibold">{teamLabels[team]}</span>
-            <span className="flex gap-3 tabular-nums">
+          <div className="flex items-center justify-between gap-2 rounded-md bg-white/5 px-2 py-1.5 text-sm">
+            <span className="truncate font-semibold">{teamLabels[team]}</span>
+            <span className="flex shrink-0 gap-2 tabular-nums">
               <span className="w-12 text-right text-stone-400">
+                {fmtDelta(teamHand)}
+              </span>
+              {penaltyCell(teamPenalty)}
+              <span className="w-12 text-right text-stone-300">
                 {fmtDelta(teamDelta)}
               </span>
               <span className="w-12 text-right font-semibold text-amber-300">
@@ -842,7 +972,8 @@ function ScoreTable({
           </div>
           {members.map((uid) => playerRow(uid, true))}
         </div>
-      ))}
+        ),
+      )}
     </div>
   );
 }

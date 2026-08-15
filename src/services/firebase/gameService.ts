@@ -327,7 +327,12 @@ function takeOpenPenaltyUpdate(
   const discarder = game.playerOrder[Number(game.pendingTake.fromSeat)];
   const points = tileValue(game.pendingTake.tile.face, game.okey) * multiplier;
   if (!discarder || points <= 0) return {};
-  const entry: PenaltyEntry = { uid: discarder, reason, points };
+  const entry: PenaltyEntry = {
+    uid: discarder,
+    reason,
+    points,
+    tile: game.pendingTake.tile.face,
+  };
   return { penaltyLog: [...(game.penaltyLog ?? []), entry] };
 }
 
@@ -958,11 +963,17 @@ export async function returnTake(lobbyId: string, uid: string): Promise<void> {
 /**
  * Discards a tile from the player's hand to their discard pile and passes the
  * turn to the next player (whose turn opens in the draw phase).
+ *
+ * `skipFloorPenalty` suppresses the discard-triggered floor penalties (okeyle
+ * atma / işlek taş atma). Only the turn-timeout auto-play sets it: the player
+ * didn't choose that tile, so charging them for it would be a time penalty in
+ * disguise. Round-end penalties (held okey) are unaffected.
  */
 export async function discardTile(
   lobbyId: string,
   uid: string,
   tileId: string,
+  { skipFloorPenalty = false }: { skipFloorPenalty?: boolean } = {},
 ): Promise<void> {
   const gameRef = doc(db, GAMES_COLLECTION, lobbyId);
   const handRef = doc(gameRef, 'hands', uid);
@@ -1018,13 +1029,14 @@ export async function discardTile(
     // winning discard (you finished; discarding the okey to win is the doubling
     // bonus, not a penalty).
     const newPenalties: PenaltyEntry[] = [];
-    if (game.floorPenalty && !won) {
+    if (game.floorPenalty && !won && !skipFloorPenalty) {
       // Okeyle atma: discarding the okey tile.
       if (isOkeyTile(tile.face, game.okey)) {
         newPenalties.push({
           uid,
           reason: 'discard-okey',
           points: PENALTY_DISCARD_OKEY,
+          tile: tile.face,
         });
       }
       // İşlek taş atma: the discard fits (could be işle'd onto) an open meld.
@@ -1039,6 +1051,7 @@ export async function discardTile(
           uid,
           reason: 'discard-processable',
           points: PENALTY_DISCARD_PROCESSABLE,
+          tile: tile.face,
         });
       }
     }
@@ -1101,6 +1114,9 @@ export async function discardTile(
       // Fold this round's floor penalties (cezalar) and the rekor reward into the
       // round delta, including any incurred by this very discard / held-okey checks.
       const penaltyLog = [...fullLog, ...heldOkeyPenalties, ...rekorBonus];
+      // Snapshot the hand-only score before penalties land, so the scoreboard
+      // can show "elde kalan" and "ceza" separately without re-deriving either.
+      const handDelta = { ...delta };
       for (const entry of penaltyLog) {
         delta[entry.uid] = (delta[entry.uid] ?? 0) + entry.points;
       }
@@ -1146,6 +1162,7 @@ export async function discardTile(
 
       const roundResult: RoundResult = {
         delta,
+        handDelta,
         totals,
         reason: won ? 'finish' : 'deck',
         doubled: globalDouble,
@@ -1192,10 +1209,11 @@ export async function discardTile(
 /**
  * Picks the tile to auto-discard on a turn timeout. The user's chosen behavior is
  * "draw + discard the drawn tile" — the freshly-drawn tile is the LAST in the
- * hand — so the player's hand is left unchanged. To honor the no-time-penalty
- * rule, if that tile would incur a floor penalty (it's the okey, or it fits an
- * open meld = işlek), fall back to the first tile that wouldn't. Returns the tile
- * id, or null if the hand can't be discarded from (≤1 tile).
+ * hand — so the player's hand is left unchanged. If that tile would incur a
+ * floor penalty (it's the okey, or it fits an open meld = işlek), prefer the
+ * first tile that wouldn't — not for the penalty (the caller suppresses those
+ * via `skipFloorPenalty`) but to avoid handing the table a free tile. Returns
+ * the tile id, or null if the hand can't be discarded from (≤1 tile).
  */
 function pickTimeoutDiscard(hand: Tile[], game: GameState): string | null {
   if (hand.length <= 1) return null;
@@ -1280,7 +1298,11 @@ export async function resolveTurnTimeout(
   );
   // Swallow the guard errors a losing concurrent driver hits (tile already gone /
   // turn already advanced) — only one discard actually lands.
-  if (tileId) await discardTile(lobbyId, uid, tileId).catch(() => {});
+  if (tileId) {
+    await discardTile(lobbyId, uid, tileId, {
+      skipFloorPenalty: true,
+    }).catch(() => {});
+  }
 }
 
 /* -------------------------------------------------------------------------- */

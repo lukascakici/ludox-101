@@ -43,6 +43,13 @@ export interface PenaltyEntry {
   uid: string;
   reason: PenaltyReason;
   /**
+   * The tile the penalty is about, when there is one (the discarded tile for
+   * `discard-*`, the taken tile for `take-open-*`). Shown in the live penalty
+   * toast and on the scoreboard so a charge can be traced to a concrete move —
+   * `take-open-*` in particular lands turns after the discard that caused it.
+   */
+  tile?: TileFace;
+  /**
    * Points added to the player's round delta. Positive worsens the score (a
    * penalty); negative improves it (a reward, e.g. the `rekor` bonus).
    */
@@ -51,8 +58,15 @@ export interface PenaltyEntry {
 
 /** The outcome of one finished round, kept for the between-rounds scoreboard. */
 export interface RoundResult {
-  /** This round's penalty points per player. */
+  /** This round's total points per player (hand score + penalties). */
   delta: Record<string, number>;
+  /**
+   * The hand-only part of `delta` (elde kalan) — what the round scored before
+   * any floor penalty or reward was folded in. Kept separate so the scoreboard
+   * can show "elde kalan" and "ceza" as distinct numbers; `delta` remains the
+   * authoritative total that feeds `totals`.
+   */
+  handDelta?: Record<string, number>;
   /** Running set totals after this round (per player; reset each set). */
   totals: Record<string, number>;
   /** The finisher uid, or absent for a deck-exhausted end. */
