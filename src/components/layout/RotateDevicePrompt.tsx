@@ -3,6 +3,9 @@
  * player to rotate to landscape. Visibility is pure CSS (portrait + max-md), so
  * it costs nothing on desktop and needs no orientation listener.
  *
+ * Mounted by RootLayout (for signed-in app screens) and by GamePage, which sits
+ * outside that layout.
+ *
  * The phone outline tips a quarter turn on a loop — the motion says "turn me"
  * faster than the sentence under it does.
  */

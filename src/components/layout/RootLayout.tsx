@@ -4,6 +4,7 @@ import { useAuthStore } from '@/store/authStore';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UserMenu } from '@/components/UserMenu';
 import { AuthScreen } from '@/components/auth/AuthScreen';
+import { RotateDevicePrompt } from '@/components/layout/RotateDevicePrompt';
 
 function PageFallback() {
   return (
@@ -56,6 +57,10 @@ export function RootLayout() {
           </Suspense>
         )}
       </main>
+
+      {/* Landscape is asked for once the player is in — the auth screen is left
+          alone, since signing in means typing and portrait suits a keyboard. */}
+      {status === 'authenticated' && <RotateDevicePrompt />}
     </div>
   );
 }

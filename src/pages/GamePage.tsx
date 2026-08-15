@@ -38,7 +38,7 @@ import { GameStage } from '@/components/game/GameStage';
 import { DevPanel } from '@/components/game/DevPanel';
 import { PenaltyToasts } from '@/components/game/PenaltyToast';
 import { Tile as TileView } from '@/components/game/Tile';
-import { RotateDevicePrompt } from '@/components/game/RotateDevicePrompt';
+import { RotateDevicePrompt } from '@/components/layout/RotateDevicePrompt';
 import type { Lobby } from '@/types/lobby';
 import type { GameState, PenaltyEntry } from '@/types/game';
 import type { Tile } from '@/game/tiles';
