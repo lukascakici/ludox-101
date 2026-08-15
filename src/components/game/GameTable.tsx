@@ -76,6 +76,30 @@ interface GameTableProps {
 
 const RACK_ZONE = '[data-rack-zone]';
 
+/**
+ * Buckets melds by whoever laid them, walked in seat order so a player's block
+ * keeps its place on the table as more melds arrive. Without this the open area
+ * is one undifferentiated heap and there's no reading who opened what.
+ */
+function groupByOwner(
+  list: TableMeld[],
+  order: string[],
+): { owner: string; melds: TableMeld[] }[] {
+  const byOwner = new Map<string, TableMeld[]>();
+  for (const meld of list) {
+    const owned = byOwner.get(meld.owner);
+    if (owned) owned.push(meld);
+    else byOwner.set(meld.owner, [meld]);
+  }
+  // Anything from an unknown owner (shouldn't happen) still gets shown, last.
+  const known = order.filter((uid) => byOwner.has(uid));
+  const rest = [...byOwner.keys()].filter((uid) => !order.includes(uid));
+  return [...known, ...rest].map((owner) => ({
+    owner,
+    melds: byOwner.get(owner) ?? [],
+  }));
+}
+
 /** A calm per-turn countdown (whole seconds). No blinking — only a colour shift
  *  when time runs low, per the design language. */
 function TurnCountdown({ deadlineMs }: { deadlineMs: number }) {
@@ -364,7 +388,6 @@ export function GameTable({
       >
         <Seat
           name={nameOf(acrossUid)}
-          tileCount={handCounts[acrossUid] ?? 0}
           isTurn={acrossUid === currentTurnUid}
           offline={offlineUids.has(acrossUid)}
         turnStartedMs={turnStartedMs}
@@ -411,7 +434,6 @@ export function GameTable({
         >
           <Seat
             name={nameOf(leftUid)}
-            tileCount={handCounts[leftUid] ?? 0}
             isTurn={leftUid === currentTurnUid}
             offline={offlineUids.has(leftUid)}
           turnStartedMs={turnStartedMs}
@@ -424,7 +446,6 @@ export function GameTable({
         >
           <Seat
             name={nameOf(rightUid)}
-            tileCount={handCounts[rightUid] ?? 0}
             isTurn={rightUid === currentTurnUid}
             offline={offlineUids.has(rightUid)}
           turnStartedMs={turnStartedMs}
@@ -446,31 +467,39 @@ export function GameTable({
               <span className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
                 Perler
               </span>
-              <div className="flex flex-1 flex-wrap content-start gap-1.5 overflow-hidden">
+              {/* One row per player: whose melds are whose reads from the line
+                  break alone, so no name labels are needed on the table. */}
+              <div className="flex flex-1 flex-col gap-2.5 overflow-hidden">
                 {meldMelds.length === 0 ? (
                   <span className="m-auto text-xs text-stone-500">
                     Henüz per yok
                   </span>
                 ) : (
-                  meldMelds.map((meld) => (
-                    <div
-                      key={meld.id}
-                      data-meld-id={meld.id}
-                      data-meld-anim={meld.id}
-                      className={`flex h-fit gap-0.5 rounded-md bg-black/25 p-0.5 ring-1 ${
-                        canProcess ? 'ring-amber-400/60' : 'ring-black/30'
-                      }`}
-                    >
-                      {meld.tiles.map((tile, index) => (
-                        <Tile
-                          key={index}
-                          tile={tile.face}
-                          asOkey={isOkeyTile(tile.face, okey)}
-                          size="sm"
-                        />
-                      ))}
-                    </div>
-                  ))
+                  groupByOwner(meldMelds, playerOrder).map(
+                    ({ owner, melds: owned }) => (
+                      <div key={owner} className="flex flex-wrap gap-1.5">
+                        {owned.map((meld) => (
+                          <div
+                            key={meld.id}
+                            data-meld-id={meld.id}
+                            data-meld-anim={meld.id}
+                            className={`flex h-fit gap-0.5 rounded-md bg-black/25 p-0.5 ring-1 ${
+                              canProcess ? 'ring-amber-400/60' : 'ring-black/30'
+                            }`}
+                          >
+                            {meld.tiles.map((tile, index) => (
+                              <Tile
+                                key={index}
+                                tile={tile.face}
+                                asOkey={isOkeyTile(tile.face, okey)}
+                                size="sm"
+                              />
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    ),
+                  )
                 )}
               </div>
             </div>

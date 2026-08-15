@@ -1,7 +1,5 @@
 interface SeatProps {
   name: string;
-  /** Number of tiles the opponent holds. */
-  tileCount: number;
   /** Highlight when it's this player's turn. */
   isTurn?: boolean;
   /** Whether this player's heartbeat is stale (disconnected). */
@@ -12,14 +10,13 @@ interface SeatProps {
 }
 
 /**
- * An opponent's seat: their name, tile count, and — on the player whose turn it
- * is — a ring that drains away as their clock runs down. The ring doubles as
- * the turn indicator, so the countdown is readable from the seat itself rather
- * than only from the number beside the rack.
+ * An opponent's seat: just their name and — on the player whose turn it is — a
+ * ring that drains away as their clock runs down. The ring doubles as the turn
+ * indicator, so the countdown is readable from the seat itself rather than only
+ * from the number beside the rack.
  */
 export function Seat({
   name,
-  tileCount,
   isTurn = false,
   offline = false,
   turnStartedMs = null,
@@ -69,13 +66,9 @@ export function Seat({
       <span className="max-w-28 truncate text-center text-sm font-medium text-stone-100">
         {name}
       </span>
-      {offline ? (
+      {offline && (
         <span className="text-[10px] font-medium text-stone-400">
           bağlantısı koptu
-        </span>
-      ) : (
-        <span className="text-[11px] tabular-nums text-stone-400">
-          {tileCount} taş
         </span>
       )}
     </div>
