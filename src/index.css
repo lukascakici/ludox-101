@@ -21,6 +21,37 @@
 }
 
 /*
+ * Rotate-your-device hint: the phone tips a quarter turn, holds there long
+ * enough to read as "this way up", then springs back. Plain CSS (not a Tailwind
+ * utility) so the reduced-motion override below reliably wins.
+ */
+@keyframes rotate-hint {
+  0%,
+  20% {
+    transform: rotate(0deg);
+  }
+  40%,
+  80% {
+    transform: rotate(-90deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.rotate-hint {
+  animation: rotate-hint 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rotate-hint {
+    /* Skip the motion but keep the landscape orientation as the message. */
+    animation: none;
+    transform: rotate(-90deg);
+  }
+}
+
+/*
  * Keeps the game clear of notches and home indicators. Paired with
  * `viewport-fit=cover` in index.html, which is what makes these non-zero.
  */
