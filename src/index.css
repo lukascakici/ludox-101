@@ -21,6 +21,22 @@
 }
 
 /*
+ * Turn ring: the outline around the active seat drains away over that player's
+ * clock. Driven by a keyframe with a negative delay rather than a JS tick, so
+ * it runs at display rate without re-rendering the table every frame.
+ * `pathLength: 1` normalises the perimeter, so an offset of d leaves exactly
+ * (1 - d) of the ring drawn.
+ */
+@keyframes turn-ring-deplete {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 1;
+  }
+}
+
+/*
  * Rotate-your-device hint: the phone tips a quarter turn, holds there long
  * enough to read as "this way up", then springs back. Plain CSS (not a Tailwind
  * utility) so the reduced-motion override below reliably wins.

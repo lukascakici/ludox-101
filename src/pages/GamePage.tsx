@@ -649,6 +649,7 @@ export function GamePage() {
           meldTarget={meldTarget}
           pairTarget={pairTarget}
           turnDeadlineMs={turnDeadlineMs}
+          turnStartedMs={turnStartedMs}
           offlineUids={offlineUids}
           onDraw={handleDraw}
           onTakeDiscard={handleTakeDiscard}

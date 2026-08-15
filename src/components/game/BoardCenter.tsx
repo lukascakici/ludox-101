@@ -11,7 +11,11 @@ interface BoardCenterProps {
   onDeckPointerDown?: (event: ReactPointerEvent) => void;
 }
 
-/** Center of the table: the indicator (gösterge) and the draw pile (deste). */
+/**
+ * Center of the table: the indicator (gösterge) above the draw pile (deste).
+ * Stacked rather than side by side — the table is far wider than it is tall, so
+ * horizontal room is the scarce one, and this hands it back to the melds.
+ */
 export function BoardCenter({
   indicator,
   drawPileCount,
@@ -19,13 +23,13 @@ export function BoardCenter({
   onDeckPointerDown,
 }: BoardCenterProps) {
   return (
-    <div className="flex items-center gap-6 rounded-xl bg-black/15 px-6 py-4">
-      <div className="flex flex-col items-center gap-1.5">
+    <div className="flex flex-col items-center gap-3 rounded-xl bg-black/15 px-4 py-3">
+      <div className="flex flex-col items-center gap-1">
         <span className="text-xs text-stone-300">Gösterge</span>
         <Tile tile={indicator} />
       </div>
 
-      <div className="flex flex-col items-center gap-1.5">
+      <div className="flex flex-col items-center gap-1">
         <span className="text-xs text-stone-300">Deste</span>
         <div
           data-deck

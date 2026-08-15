@@ -60,6 +60,8 @@ interface GameTableProps {
   pairTarget: number;
   /** Absolute ms deadline for the current turn, or null when no clock runs. */
   turnDeadlineMs: number | null;
+  /** When the current turn began — with the deadline, this sizes the turn ring. */
+  turnStartedMs: number | null;
   /** Player uids whose heartbeat is stale (shown as "bağlantısı koptu"). */
   offlineUids: Set<string>;
   onDraw: () => void;
@@ -125,6 +127,7 @@ export function GameTable({
   meldTarget,
   pairTarget,
   turnDeadlineMs,
+  turnStartedMs,
   offlineUids,
   onDraw,
   onDiscard,
@@ -364,6 +367,8 @@ export function GameTable({
           tileCount={handCounts[acrossUid] ?? 0}
           isTurn={acrossUid === currentTurnUid}
           offline={offlineUids.has(acrossUid)}
+        turnStartedMs={turnStartedMs}
+        turnDeadlineMs={turnDeadlineMs}
         />
       </div>
       <div data-pile={(myIndex + 2) % count} className="absolute left-4 top-16">
@@ -409,6 +414,8 @@ export function GameTable({
             tileCount={handCounts[leftUid] ?? 0}
             isTurn={leftUid === currentTurnUid}
             offline={offlineUids.has(leftUid)}
+          turnStartedMs={turnStartedMs}
+          turnDeadlineMs={turnDeadlineMs}
           />
         </div>
         <div
@@ -420,6 +427,8 @@ export function GameTable({
             tileCount={handCounts[rightUid] ?? 0}
             isTurn={rightUid === currentTurnUid}
             offline={offlineUids.has(rightUid)}
+          turnStartedMs={turnStartedMs}
+          turnDeadlineMs={turnDeadlineMs}
           />
         </div>
 
@@ -427,7 +436,7 @@ export function GameTable({
         <div className="flex h-full min-h-0 flex-1 items-center justify-center gap-4">
           <div
             data-open-area
-            className="flex h-full min-w-0 flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"
+            className="flex h-[76%] max-h-60 min-w-0 flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"
           >
             {/* Perler (runs/groups) — width grows with how many melds it holds. */}
             <div
