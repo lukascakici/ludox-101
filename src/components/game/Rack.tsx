@@ -6,6 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { Tile } from './Tile';
 import { isOkeyTile, type OkeyMatch } from '@/game/okey';
 import type { Arrangement } from '@/game/arrange';
@@ -401,14 +402,28 @@ export const Rack = forwardRef<RackHandle, RackProps>(function Rack(
         </div>
       </div>
 
-      {drag && (
-        <div
-          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2"
-          style={{ left: drag.x, top: drag.y }}
-        >
-          <Tile tile={drag.tile.face} asOkey={isOkeyTile(drag.tile.face, okey)} />
-        </div>
-      )}
+      {/* The ghost follows the raw pointer, so it must live outside the scaled
+          stage — a transformed ancestor becomes the containing block for
+          `position: fixed` and would offset it. It borrows the stage's scale so
+          it still matches the tiles it was lifted from. */}
+      {drag &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-50"
+            style={{
+              left: drag.x,
+              top: drag.y,
+              transform:
+                'translate(-50%, -50%) scale(var(--stage-scale, 1))',
+            }}
+          >
+            <Tile
+              tile={drag.tile.face}
+              asOkey={isOkeyTile(drag.tile.face, okey)}
+            />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 });

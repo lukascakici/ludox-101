@@ -34,6 +34,7 @@ import { recordMatchHistory } from '@/services/firebase/historyService';
 import { teamLabels } from '@/constants/lobby';
 import { useAuthStore } from '@/store/authStore';
 import { GameTable } from '@/components/game/GameTable';
+import { GameStage } from '@/components/game/GameStage';
 import { DevPanel } from '@/components/game/DevPanel';
 import { PenaltyToasts } from '@/components/game/PenaltyToast';
 import { Tile as TileView } from '@/components/game/Tile';
@@ -620,43 +621,45 @@ export function GamePage() {
           )
         }
       />
-      <GameTable
-        lobby={lobby}
-        currentUid={uid}
-        hand={hand ?? []}
-        indicator={game.indicator}
-        handCounts={game.handCounts}
-        drawPileCount={game.drawCount}
-        playerOrder={game.playerOrder}
-        discards={game.discards}
-        turnIndex={game.turnIndex}
-        canDraw={canDraw}
-        canTake={canTake}
-        canDiscard={canDiscard}
-        canOpen={canOpen}
-        hasOpened={hasOpened}
-        myOpenType={myOpenType}
-        pairsAreaExists={pairsAreaExists}
-        hasPendingTake={hasPendingTake}
-        {...(hasPendingTake && game.pendingTake
-          ? { pendingTileId: game.pendingTake.tile.id }
-          : {})}
-        melds={tableMelds}
-        canProcess={canProcess}
-        assisted={lobby.settings.assisted ?? true}
-        meldTarget={meldTarget}
-        pairTarget={pairTarget}
-        turnDeadlineMs={turnDeadlineMs}
-        offlineUids={offlineUids}
-        onDraw={handleDraw}
-        onTakeDiscard={handleTakeDiscard}
-        onDiscard={handleDiscard}
-        onOpen={handleOpen}
-        onLayPairs={handleLayPairs}
-        onReturnTake={handleReturnTake}
-        onProcess={handleProcess}
-        onAutoProcess={handleAutoProcess}
-      />
+      <GameStage>
+        <GameTable
+          lobby={lobby}
+          currentUid={uid}
+          hand={hand ?? []}
+          indicator={game.indicator}
+          handCounts={game.handCounts}
+          drawPileCount={game.drawCount}
+          playerOrder={game.playerOrder}
+          discards={game.discards}
+          turnIndex={game.turnIndex}
+          canDraw={canDraw}
+          canTake={canTake}
+          canDiscard={canDiscard}
+          canOpen={canOpen}
+          hasOpened={hasOpened}
+          myOpenType={myOpenType}
+          pairsAreaExists={pairsAreaExists}
+          hasPendingTake={hasPendingTake}
+          {...(hasPendingTake && game.pendingTake
+            ? { pendingTileId: game.pendingTake.tile.id }
+            : {})}
+          melds={tableMelds}
+          canProcess={canProcess}
+          assisted={lobby.settings.assisted ?? true}
+          meldTarget={meldTarget}
+          pairTarget={pairTarget}
+          turnDeadlineMs={turnDeadlineMs}
+          offlineUids={offlineUids}
+          onDraw={handleDraw}
+          onTakeDiscard={handleTakeDiscard}
+          onDiscard={handleDiscard}
+          onOpen={handleOpen}
+          onLayPairs={handleLayPairs}
+          onReturnTake={handleReturnTake}
+          onProcess={handleProcess}
+          onAutoProcess={handleAutoProcess}
+        />
+      </GameStage>
       <RotateDevicePrompt />
 
       {uid && <DevPanel lobbyId={lobby.id} uid={uid} />}
@@ -669,7 +672,9 @@ export function GamePage() {
 
       {game.status === 'finished' && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-sm rounded-xl border border-stone-100/15 bg-felt-900 p-5 text-stone-100 shadow-2xl">
+          {/* Scrolls rather than clipping: a landscape phone is ~375px tall and
+              the scoreboard grows with penalties. */}
+          <div className="max-h-full w-full max-w-sm overflow-y-auto rounded-xl border border-stone-100/15 bg-felt-900 p-5 text-stone-100 shadow-2xl">
             <h2 className="text-center text-lg font-semibold">
               {matchOver ? 'Maç bitti' : setComplete ? 'Set bitti' : 'El bitti'}
             </h2>

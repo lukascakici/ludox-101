@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Tile, type GameTile } from './Tile';
 
 export interface Point {
@@ -49,12 +50,17 @@ export function FlyingTile({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
+  // Flights are aimed with viewport coordinates (getBoundingClientRect), so they
+  // render outside the scaled stage — `position: fixed` resolves against a
+  // transformed ancestor, not the viewport — and take the stage's scale to stay
+  // the same size as the tiles they fly between.
+  return createPortal(
     <div
-      className="pointer-events-none fixed z-40 -translate-x-1/2 -translate-y-1/2"
+      className="pointer-events-none fixed z-40"
       style={{
         left: pos.x,
         top: pos.y,
+        transform: 'translate(-50%, -50%) scale(var(--stage-scale, 1))',
         transition: `left ${DURATION_MS}ms ease, top ${DURATION_MS}ms ease`,
       }}
     >
@@ -63,6 +69,7 @@ export function FlyingTile({
       ) : flight.face ? (
         <Tile tile={flight.face} />
       ) : null}
-    </div>
+    </div>,
+    document.body,
   );
 }

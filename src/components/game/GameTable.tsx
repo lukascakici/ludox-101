@@ -329,7 +329,9 @@ export function GameTable({
   }, [meldIdsSig]);
 
   return (
-    <div className="table-felt touch-play flex h-dvh flex-col text-stone-100">
+    // Fills the fixed-size stage (GameStage), which scales the whole thing to
+    // the viewport — so this layout is authored once, at one size.
+    <div className="flex h-full w-full flex-col text-stone-100">
       {/* Top bar */}
       <div className="flex shrink-0 items-center justify-between px-4 py-2">
         <span className="text-sm font-semibold tracking-tight">
@@ -420,7 +422,7 @@ export function GameTable({
         {/* Center: the opening area (where melds will be laid) + deck/indicator.
             The container is click-through so corner piles stay droppable; only
             the deck re-enables pointer events. */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-32">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 px-[13%]">
           <div
             data-open-area
             className="pointer-events-auto flex h-[58%] min-h-44 max-h-72 max-w-4xl flex-1 gap-2 overflow-hidden rounded-xl border border-stone-100/10 bg-black/20 p-2 shadow-inner"

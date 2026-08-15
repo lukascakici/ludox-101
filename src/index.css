@@ -21,6 +21,16 @@
 }
 
 /*
+ * Keeps the game clear of notches and home indicators. Paired with
+ * `viewport-fit=cover` in index.html, which is what makes these non-zero.
+ */
+@utility safe-inset {
+  padding:
+    env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/*
  * Touch hardening for the game screen. iOS fires pointercancel (killing a
  * drag) as soon as it starts a long-press callout, a text selection or a
  * rubber-band scroll, so all three are disabled on the table surface.
