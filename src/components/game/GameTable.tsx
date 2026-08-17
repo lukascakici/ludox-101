@@ -554,65 +554,68 @@ export function GameTable({
         </div>
       </div>
 
-      {/* Rack */}
-      <div className="flex shrink-0 flex-col items-center gap-1 px-2 pb-3">
-        <div className="flex items-center gap-2">
-          <span
-            className={`text-xs ${
-              isMyTurn ? 'font-semibold text-amber-300' : 'text-stone-300'
-            }`}
-          >
-            {!isMyTurn
-              ? `Sıra: ${nameOf(currentTurnUid)}`
-              : hasPendingTake
-                ? 'Soldan taş aldın — aç ya da geri bırak'
-                : canDiscard
-                  ? 'Sıra sende — bir taşı sağdaki ıskartaya sürükleyip at'
-                  : 'Sıra sende'}
-          </span>
-          {turnDeadlineMs != null && (
-            <TurnCountdown deadlineMs={turnDeadlineMs} />
-          )}
-        </div>
+      {/* Rack. `pt-6` reserves the band the rack header sits in — it's
+          absolutely positioned, so nothing else holds that space open. */}
+      <div className="flex shrink-0 flex-col items-center px-2 pb-3 pt-6">
         <div className="flex items-end justify-center gap-3">
-          {/* The opening-progress badges ride on the rack's top-right corner
-              rather than heading the button column, which was crowded. */}
           <div className="relative">
-            <div className="absolute -top-6 right-0 flex gap-1 text-xs">
+            {/* Header riding on the rack's top edge: turn hint on the left,
+                opening-progress badges on the right. One row spanning exactly
+                the rack, so the hint can never end up under the badges however
+                long it gets — it truncates instead. */}
+            <div className="absolute inset-x-0 -top-6 flex items-center gap-2">
               <span
-                className={`rounded-md border px-2 py-0.5 font-semibold tabular-nums ${
-                  score.series >= meldTarget
-                    ? 'border-amber-400 text-amber-300'
-                    : 'border-stone-100/30 text-stone-200'
+                className={`min-w-0 truncate text-xs ${
+                  isMyTurn ? 'font-semibold text-amber-300' : 'text-stone-300'
                 }`}
               >
-                {score.series}/{meldTarget}
+                {!isMyTurn
+                  ? `Sıra: ${nameOf(currentTurnUid)}`
+                  : hasPendingTake
+                    ? 'Soldan taş aldın — aç ya da geri bırak'
+                    : canDiscard
+                      ? 'Sıra sende — bir taşı sağdaki ıskartaya sürükleyip at'
+                      : 'Sıra sende'}
               </span>
-              <span
-                className={`rounded-md border px-2 py-0.5 font-semibold tabular-nums ${
-                  score.pairs >= pairTarget
-                    ? 'border-amber-400 text-amber-300'
-                    : 'border-stone-100/30 text-stone-200'
-                }`}
-              >
-                {score.pairs}/{pairTarget}
-              </span>
+              {turnDeadlineMs != null && (
+                <TurnCountdown deadlineMs={turnDeadlineMs} />
+              )}
+              <div className="ml-auto flex shrink-0 gap-1 text-xs">
+                <span
+                  className={`rounded-md border px-2 py-0.5 font-semibold tabular-nums ${
+                    score.series >= meldTarget
+                      ? 'border-amber-400 text-amber-300'
+                      : 'border-stone-100/30 text-stone-200'
+                  }`}
+                >
+                  {score.series}/{meldTarget}
+                </span>
+                <span
+                  className={`rounded-md border px-2 py-0.5 font-semibold tabular-nums ${
+                    score.pairs >= pairTarget
+                      ? 'border-amber-400 text-amber-300'
+                      : 'border-stone-100/30 text-stone-200'
+                  }`}
+                >
+                  {score.pairs}/{pairTarget}
+                </span>
+              </div>
             </div>
 
             <Rack
               ref={rackRef}
-            tiles={hand}
-            okey={okey}
-            canDiscard={canDiscard}
-            onDiscard={handleRackDiscard}
-            canProcess={canProcess}
-            onProcess={onProcess}
-            processableIds={processableIds}
-            {...(pendingTileId ? { highlightTileId: pendingTileId } : {})}
-            onReturn={handleReturn}
-            onArrange={setCurrentGroups}
-            incomingSlot={pendingSlot}
-            onIncomingPlaced={() => setPendingSlot(null)}
+              tiles={hand}
+              okey={okey}
+              canDiscard={canDiscard}
+              onDiscard={handleRackDiscard}
+              canProcess={canProcess}
+              onProcess={onProcess}
+              processableIds={processableIds}
+              {...(pendingTileId ? { highlightTileId: pendingTileId } : {})}
+              onReturn={handleReturn}
+              onArrange={setCurrentGroups}
+              incomingSlot={pendingSlot}
+              onIncomingPlaced={() => setPendingSlot(null)}
               {...(currentUid
                 ? { storageKey: `ludox-rack:${lobby.id}:${currentUid}` }
                 : {})}

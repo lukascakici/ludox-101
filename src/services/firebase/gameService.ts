@@ -386,6 +386,12 @@ export async function openMelds(
     }
 
     const game = gameSnap.data() as GameState;
+    // The round-end write deliberately leaves turnIndex/turnPhase where they
+    // were (the scoreboard reads them), so without this guard a second, racing
+    // action would still pass the turn checks below and score the round twice.
+    if (game.status !== 'playing' || game.roundResult) {
+      throw new GameActionError('round-over');
+    }
     if (game.playerOrder[game.turnIndex] !== uid) {
       throw new GameActionError('not-your-turn');
     }
@@ -514,6 +520,12 @@ export async function layPairs(
     }
 
     const game = gameSnap.data() as GameState;
+    // The round-end write deliberately leaves turnIndex/turnPhase where they
+    // were (the scoreboard reads them), so without this guard a second, racing
+    // action would still pass the turn checks below and score the round twice.
+    if (game.status !== 'playing' || game.roundResult) {
+      throw new GameActionError('round-over');
+    }
     if (game.playerOrder[game.turnIndex] !== uid) {
       throw new GameActionError('not-your-turn');
     }
@@ -637,6 +649,12 @@ export async function processTile(
     }
 
     const game = gameSnap.data() as GameState;
+    // The round-end write deliberately leaves turnIndex/turnPhase where they
+    // were (the scoreboard reads them), so without this guard a second, racing
+    // action would still pass the turn checks below and score the round twice.
+    if (game.status !== 'playing' || game.roundResult) {
+      throw new GameActionError('round-over');
+    }
     if (game.playerOrder[game.turnIndex] !== uid) {
       throw new GameActionError('not-your-turn');
     }
@@ -773,6 +791,7 @@ export class GameActionError extends Error {
   constructor(
     readonly code:
       | 'not-your-turn'
+      | 'round-over'
       | 'wrong-phase'
       | 'deck-empty'
       | 'empty-discard'
@@ -822,6 +841,12 @@ export async function drawFromDeck(lobbyId: string, uid: string): Promise<void> 
     }
 
     const game = gameSnap.data() as GameState;
+    // The round-end write deliberately leaves turnIndex/turnPhase where they
+    // were (the scoreboard reads them), so without this guard a second, racing
+    // action would still pass the turn checks below and score the round twice.
+    if (game.status !== 'playing' || game.roundResult) {
+      throw new GameActionError('round-over');
+    }
     if (game.playerOrder[game.turnIndex] !== uid) {
       throw new GameActionError('not-your-turn');
     }
@@ -877,6 +902,12 @@ export async function takeFromDiscard(
     }
 
     const game = gameSnap.data() as GameState;
+    // The round-end write deliberately leaves turnIndex/turnPhase where they
+    // were (the scoreboard reads them), so without this guard a second, racing
+    // action would still pass the turn checks below and score the round twice.
+    if (game.status !== 'playing' || game.roundResult) {
+      throw new GameActionError('round-over');
+    }
     if (game.playerOrder[game.turnIndex] !== uid) {
       throw new GameActionError('not-your-turn');
     }
@@ -938,6 +969,12 @@ export async function returnTake(lobbyId: string, uid: string): Promise<void> {
     }
 
     const game = gameSnap.data() as GameState;
+    // The round-end write deliberately leaves turnIndex/turnPhase where they
+    // were (the scoreboard reads them), so without this guard a second, racing
+    // action would still pass the turn checks below and score the round twice.
+    if (game.status !== 'playing' || game.roundResult) {
+      throw new GameActionError('round-over');
+    }
     if (game.playerOrder[game.turnIndex] !== uid) {
       throw new GameActionError('not-your-turn');
     }
@@ -1003,6 +1040,12 @@ export async function discardTile(
     }
 
     const game = gameSnap.data() as GameState;
+    // The round-end write deliberately leaves turnIndex/turnPhase where they
+    // were (the scoreboard reads them), so without this guard a second, racing
+    // action would still pass the turn checks below and score the round twice.
+    if (game.status !== 'playing' || game.roundResult) {
+      throw new GameActionError('round-over');
+    }
     if (game.playerOrder[game.turnIndex] !== uid) {
       throw new GameActionError('not-your-turn');
     }
