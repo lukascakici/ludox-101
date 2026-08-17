@@ -40,7 +40,7 @@ import { PenaltyToasts } from '@/components/game/PenaltyToast';
 import { Tile as TileView } from '@/components/game/Tile';
 import { RotateDevicePrompt } from '@/components/layout/RotateDevicePrompt';
 import type { Lobby } from '@/types/lobby';
-import type { GameState, PenaltyEntry } from '@/types/game';
+import type { GameState, PenaltyEntry, RoundResult } from '@/types/game';
 import type { Tile } from '@/game/tiles';
 import type { Timestamp } from 'firebase/firestore';
 
@@ -681,9 +681,10 @@ export function GamePage() {
             </h2>
             <p className="mt-1 text-center text-sm text-stone-300">
               {game.roundResult?.reason === 'finish'
-                ? `${nameFor(game.roundResult.winner)} eli kapattı${
-                    game.roundResult.doubled ? ' · ×2' : ''
-                  }`
+                ? finishSummary(
+                    game.roundResult,
+                    nameFor(game.roundResult.winner),
+                  )
                 : 'Deste tükendi'}
             </p>
             {isSeries && (
@@ -840,6 +841,27 @@ const penaltyReasonLabels: Record<string, string> = {
 function fmtDelta(delta: number | undefined): string {
   if (delta == null) return '–';
   return delta > 0 ? `+${delta}` : String(delta);
+}
+
+/**
+ * The line under the round-end title: who closed the hand, what kind of finish
+ * it was, and what it cost the table. The finisher's bonus is only spelled out
+ * when it isn't the ordinary -101. Rounds scored before `finish` existed carry
+ * only `doubled`, so that stays as the fallback.
+ */
+function finishSummary(result: RoundResult, name: string): string {
+  const opener = `${name} eli kapattı`;
+  const finish = result.finish;
+  if (!finish) return result.doubled ? `${opener} · ×2` : opener;
+
+  const parts = [opener];
+  if (finish.headShot) parts.push('kafa attı');
+  else if (finish.hand) parts.push('elden bitti');
+  if (finish.pairs) parts.push('çift bitti');
+  if (finish.okey) parts.push('okeyle');
+  if (finish.hand || finish.pairs) parts.push(String(finish.bonus));
+  if (finish.multiplier > 1) parts.push(`rakipler ×${finish.multiplier}`);
+  return parts.join(' · ');
 }
 
 /**
