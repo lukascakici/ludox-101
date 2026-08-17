@@ -36,6 +36,7 @@ export type DevHandKind =
   | 'meld101'
   | 'meld153'
   | 'finish'
+  | 'elden'
   | 'rekor';
 
 let devSeq = 0;
@@ -138,6 +139,27 @@ function buildFinishHand(uid: string): Tile[] {
   return [devTile(num('red', 5), uid)];
 }
 
+/**
+ * Seven groups of three (13 down to 7) worth 210, plus one spare = 22 tiles.
+ * Lay all seven in one turn and discard the spare to test elden bitme — and,
+ * with no opponent opened, kafa atma.
+ *
+ * 22, not 21: `devGiveHand` drops you straight into the discard phase, which in
+ * a real round is always reached holding 22 (21 dealt + 1 drawn). A 21-tile
+ * preset would flip that parity and let you "verify" a board that cannot occur.
+ * The spare is a 1 so it can't be işle'd onto any of the groups.
+ */
+function buildEldenHand(uid: string): Tile[] {
+  const tiles: Tile[] = [];
+  for (let value = 13; value >= 7; value--) {
+    for (const color of ['red', 'yellow', 'blue'] as TileColor[]) {
+      tiles.push(devTile(num(color, value), uid));
+    }
+  }
+  tiles.push(devTile(num('black', 1), uid));
+  return tiles;
+}
+
 function buildHand(kind: DevHandKind, uid: string): Tile[] {
   switch (kind) {
     case 'pairs':
@@ -150,6 +172,8 @@ function buildHand(kind: DevHandKind, uid: string): Tile[] {
       return buildRekorHand(uid);
     case 'finish':
       return buildFinishHand(uid);
+    case 'elden':
+      return buildEldenHand(uid);
   }
 }
 

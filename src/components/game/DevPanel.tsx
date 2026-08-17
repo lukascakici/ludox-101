@@ -60,6 +60,7 @@ export function DevPanel({ lobbyId, uid }: DevPanelProps) {
           <Btn onClick={give('pairs')}>Çift eli ver</Btn>
           <Btn onClick={give('rekor')}>Rekor eli (7 çift)</Btn>
           <Btn onClick={give('finish')}>Bitir (1 taş)</Btn>
+          <Btn onClick={give('elden')}>Elden bitme eli (22 taş)</Btn>
 
           <Label>Masa kur</Label>
           <Btn onClick={run(() => devMarkOpened(lobbyId, uid, 'meld'))}>
