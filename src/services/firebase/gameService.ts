@@ -1254,10 +1254,15 @@ export async function discardTile(
  * floor penalty (it's the okey, or it fits an open meld = işlek), prefer the
  * first tile that wouldn't — not for the penalty (the caller suppresses those
  * via `skipFloorPenalty`) but to avoid handing the table a free tile. Returns
- * the tile id, or null if the hand can't be discarded from (≤1 tile).
+ * the tile id, or null only for an empty hand.
+ *
+ * A single-tile hand IS discardable, and must be: an unopened player never gets
+ * below 21 tiles, so one tile means they've opened and that discard is their
+ * winning move. Refusing it would hang the round forever, since `discardTile`
+ * is the only thing that advances the turn.
  */
 function pickTimeoutDiscard(hand: Tile[], game: GameState): string | null {
-  if (hand.length <= 1) return null;
+  if (hand.length < 1) return null;
   const causesPenalty = (tile: Tile): boolean => {
     if (!game.floorPenalty) return false;
     if (isOkeyTile(tile.face, game.okey)) return true;
