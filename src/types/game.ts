@@ -168,6 +168,16 @@ export interface GameState {
    * once a pairs area exists. Absent for players who haven't opened yet.
    */
   openedWith: Record<string, 'meld' | 'pair'>;
+  /**
+   * uid of the player who made their FIRST opening during the turn currently in
+   * progress, while they still haven't processed (işle) a tile onto any meld.
+   * Set by `openMelds` / `layPairs`, cleared by `processTile` and by every
+   * discard — so it can never survive a turn boundary. This is what makes
+   * "elden bitme" (going out in the same turn you opened, without processing)
+   * distinguishable from an ordinary finish; nothing else in the doc records
+   * WHEN a player opened.
+   */
+  openedThisTurn?: string;
   /** Melds laid on the table. */
   melds: TableMeld[];
   /**

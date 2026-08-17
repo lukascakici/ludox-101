@@ -167,6 +167,8 @@ export async function devSetMyTurn(lobbyId: string, uid: string): Promise<void> 
   await updateDoc(doc(db, GAMES_COLLECTION, lobbyId), {
     turnIndex: seat,
     turnPhase: 'discard',
+    // Jumping the turn without a discard would otherwise strand the marker.
+    openedThisTurn: deleteField(),
   });
 }
 
@@ -213,6 +215,7 @@ export async function devGiveHand(
     [`okeyCount.${uid}`]: countOkeys(tiles, game.okey),
     turnIndex: seat,
     turnPhase: 'discard',
+    openedThisTurn: deleteField(),
     ...(kind === 'finish'
       ? { [`opened.${uid}`]: true, [`openedWith.${uid}`]: 'meld' }
       : {}),
@@ -378,11 +381,14 @@ export async function devRedeal(lobbyId: string): Promise<void> {
     setsWon: {},
     opened: {},
     openedWith: {},
+    openValue: {},
+    openedThisTurn: deleteField(),
     melds: [],
     roundResult: deleteField(),
     winner: deleteField(),
     pendingTake: deleteField(),
     penaltyLog: deleteField(),
+    rekor: deleteField(),
   });
   result.hands.forEach((hand, seat) => {
     batch.set(doc(gameRef, 'hands', playerOrder[seat]), { tiles: hand });

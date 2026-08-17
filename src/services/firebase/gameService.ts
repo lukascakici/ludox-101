@@ -458,9 +458,15 @@ export async function openMelds(
       melds: [...existingMelds, ...tableMelds],
       [`opened.${uid}`]: true,
       // Record the opening kind + value only on the FIRST open (the katlama bar).
+      // `openedThisTurn` also starts the elden-bitme window here; a second open
+      // in the same turn takes this branch no more, so the window survives it.
       ...(alreadyOpened
         ? {}
-        : { [`openedWith.${uid}`]: 'meld', [`openValue.${uid}`]: total }),
+        : {
+            [`openedWith.${uid}`]: 'meld',
+            [`openValue.${uid}`]: total,
+            openedThisTurn: uid,
+          }),
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
       [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
@@ -576,11 +582,13 @@ export async function layPairs(
       melds: [...existingMelds, ...pairMelds],
       [`opened.${uid}`]: true,
       // Record 'pair' + the pair count only when this is the player's first open.
+      // `openedThisTurn` opens the elden-bitme window (see `openMelds`).
       ...(alreadyOpened
         ? {}
         : {
             [`openedWith.${uid}`]: 'pair',
             [`openValue.${uid}`]: groups.length,
+            openedThisTurn: uid,
           }),
       [`handCounts.${uid}`]: remaining.length,
       [`handValue.${uid}`]: (game.handValue?.[uid] ?? 0) - laidValue,
@@ -679,6 +687,9 @@ export async function processTile(
       [`handValue.${uid}`]:
         (game.handValue?.[uid] ?? 0) - tileValue(tile.face, game.okey),
       [`okeyCount.${uid}`]: countOkeys(remaining, game.okey),
+      // Processing forfeits elden bitme ("taş işlemeden bitmek"). Only on the
+      // success path — a rejected wrong-process moved no tile, so it doesn't.
+      openedThisTurn: deleteField(),
     });
     tx.set(doc(collection(gameRef, 'moves')), {
       type: 'process',
@@ -1191,6 +1202,11 @@ export async function discardTile(
       [`handCounts.${uid}`]: newHand.length,
       [`handValue.${uid}`]: myNewValue,
       [`okeyCount.${uid}`]: countOkeys(newHand, game.okey),
+      // The discard ends the turn, so the elden-bitme window closes here — and
+      // since this is the only place that advances `turnIndex`, the marker can
+      // never survive into someone else's turn. Kept out of `endUpdate`, which
+      // is typed without FieldValue and only merged when the round ends.
+      openedThisTurn: deleteField(),
       ...(newPenalties.length ? { penaltyLog: fullLog } : {}),
       ...endUpdate,
       // Restart the turn clock only when the turn actually passes to a live next
@@ -1382,6 +1398,7 @@ async function redealAndUpdate(
     opened: {},
     openedWith: {},
     openValue: {},
+    openedThisTurn: deleteField(),
     melds: [],
     roundResult: deleteField(),
     winner: deleteField(),
