@@ -201,6 +201,62 @@ describe('scoreRound', () => {
     expect(result).toEqual({ a: -200, b: 808, c: 808, d: 808 });
   });
 
+  it("zeroes the finisher's partner in eşli mode", () => {
+    const result = scoreRound({
+      playerOrder: order,
+      // c is a's partner: never opened and holding 30, but it stops mattering.
+      teams: { a: 0, b: 1, c: 0, d: 1 },
+      opened: { a: true, b: true, c: false, d: true },
+      handValue: { a: 0, b: 14, c: 30, d: 5 },
+      openedWith: { a: 'meld', b: 'meld', d: 'meld' },
+      winner: 'a',
+      finishBonus: FINISH_BONUS,
+      opponentMultiplier: 1,
+    });
+    expect(result).toEqual({ a: -101, b: 14, c: 0, d: 5 });
+  });
+
+  it('does not multiply the partner either', () => {
+    const result = scoreRound({
+      playerOrder: order,
+      teams: { a: 0, b: 1, c: 0, d: 1 },
+      opened: { a: true, b: false, c: false, d: false },
+      handValue: { a: 0, b: 14, c: 30, d: 5 },
+      openedWith: { a: 'meld' },
+      winner: 'a', // kafa atma + okey
+      finishBonus: HAND_FINISH_BONUS,
+      opponentMultiplier: 4,
+    });
+    // Team 0: -200 + 0. Team 1: two non-openers at 202 × 4.
+    expect(result).toEqual({ a: -200, b: 808, c: 0, d: 808 });
+  });
+
+  it('leaves solo mode untouched (no teams -> no partner rule)', () => {
+    const result = scoreRound({
+      playerOrder: order,
+      opened: { a: true, b: true, c: false, d: true },
+      handValue: { a: 0, b: 14, c: 30, d: 5 },
+      openedWith: { a: 'meld', b: 'meld', d: 'meld' },
+      winner: 'a',
+      finishBonus: FINISH_BONUS,
+      opponentMultiplier: 1,
+    });
+    expect(result).toEqual({ a: -101, b: 14, c: 202, d: 5 });
+  });
+
+  it('applies no partner rule when the deck ran out (no winner)', () => {
+    const result = scoreRound({
+      playerOrder: order,
+      teams: { a: 0, b: 1, c: 0, d: 1 },
+      opened: { a: true, b: true, c: false, d: true },
+      handValue: { a: 9, b: 14, c: 30, d: 5 },
+      openedWith: { a: 'meld', b: 'meld', d: 'meld' },
+      finishBonus: FINISH_BONUS,
+      opponentMultiplier: 1,
+    });
+    expect(result).toEqual({ a: 9, b: 14, c: 202, d: 5 });
+  });
+
   it('non-openers always score a flat 202 (a team of two sums to 404)', () => {
     // Both members of team 0 (a&c) fail to open: each is 202, NOT doubled —
     // their combined team total is 404 naturally. No per-player 404.

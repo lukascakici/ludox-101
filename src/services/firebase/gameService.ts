@@ -1108,6 +1108,8 @@ export async function discardTile(
         handValue: postValue,
         finishBonus,
         opponentMultiplier,
+        // Eşli only: lets scoreRound zero out the finisher's partner.
+        ...(game.teams ? { teams: game.teams } : {}),
         ...(won ? { winner: uid } : {}),
       });
       // Held-okey penalty: an OPENED player still holding the okey when the
