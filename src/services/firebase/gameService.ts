@@ -19,7 +19,11 @@ import { classifyMeld, isPair } from '@/game/melds';
 import { effectiveOpenMin, effectivePairMin } from '@/game/katlama';
 import { orderMeld } from '@/game/arrange';
 import {
+  finishBonusOf,
+  finishFlagsOf,
   handValueOf,
+  NO_FINISH,
+  opponentMultiplierOf,
   PENALTY_DISCARD_OKEY,
   PENALTY_DISCARD_PROCESSABLE,
   PENALTY_HELD_OKEY,
@@ -1034,15 +1038,16 @@ export async function discardTile(
     const won = newHand.length === 0 && (game.opened ?? {})[uid] === true;
     // Otherwise, if the deck is exhausted, this discard ends the hand (no winner).
     const deckExhausted = game.drawCount === 0;
+    const discardedOkey = isOkeyTile(tile.face, game.okey);
 
     // Floor penalties triggered BY this discard (cezalar). Both are public — the
     // discarded tile is visible — so no private-hand read is needed. Skipped on a
-    // winning discard (you finished; discarding the okey to win is the doubling
-    // bonus, not a penalty).
+    // winning discard (you finished; closing on the okey multiplies the
+    // opponents, it isn't a penalty).
     const newPenalties: PenaltyEntry[] = [];
     if (game.floorPenalty && !won && !skipFloorPenalty) {
       // Okeyle atma: discarding the okey tile.
-      if (isOkeyTile(tile.face, game.okey)) {
+      if (discardedOkey) {
         newPenalties.push({
           uid,
           reason: 'discard-okey',
@@ -1079,19 +1084,30 @@ export async function discardTile(
       turnPhase: 'draw',
     };
     if (won || deckExhausted) {
-      // A special finish (closing on the okey, or finishing a pairs hand)
-      // doubles EVERY player. (A pair opener's own score also doubles — handled
-      // per-player inside scoreRound via openedWith.)
-      const globalDouble =
-        won &&
-        ((game.openedWith ?? {})[uid] === 'pair' ||
-          isOkeyTile(tile.face, game.okey));
+      // What kind of finish this was. A special finish pays the finisher a flat
+      // -200 and multiplies the OPPONENTS; the finisher is never multiplied.
+      // (A pair opener's own ×2 commitment is applied per-player in scoreRound.)
+      const finishFlags = won
+        ? finishFlagsOf({
+            uid,
+            playerOrder: game.playerOrder,
+            opened: game.opened ?? {},
+            openedWith: game.openedWith ?? {},
+            ...(game.openedThisTurn
+              ? { openedThisTurn: game.openedThisTurn }
+              : {}),
+            okeyDiscard: discardedOkey,
+          })
+        : NO_FINISH;
+      const finishBonus = finishBonusOf(finishFlags);
+      const opponentMultiplier = won ? opponentMultiplierOf(finishFlags) : 1;
       const delta = scoreRound({
         playerOrder: game.playerOrder,
         opened: game.opened ?? {},
         openedWith: game.openedWith ?? {},
         handValue: postValue,
-        globalDouble,
+        finishBonus,
+        opponentMultiplier,
         ...(won ? { winner: uid } : {}),
       });
       // Held-okey penalty: an OPENED player still holding the okey when the
@@ -1176,8 +1192,17 @@ export async function discardTile(
         handDelta,
         totals,
         reason: won ? 'finish' : 'deck',
-        doubled: globalDouble,
-        ...(won ? { winner: uid } : {}),
+        doubled: opponentMultiplier > 1,
+        ...(won
+          ? {
+              winner: uid,
+              finish: {
+                ...finishFlags,
+                multiplier: opponentMultiplier,
+                bonus: finishBonus,
+              },
+            }
+          : {}),
         ...(setComplete
           ? { setComplete: true, ...(setWinner ? { setWinner } : {}) }
           : {}),

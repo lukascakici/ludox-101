@@ -5,19 +5,24 @@ import type { Tile, TileFace } from './tiles';
  * Okey 101 round scoring (penalty-based — LOWER total wins the match).
  *
  * At the end of a round each player is scored:
- *  - the finisher (el kapatan): a fixed bonus of -101,
+ *  - the finisher (el kapatan): a flat bonus, -101 normally and -200 for a
+ *    special finish (see `FinishFlags`). The finisher's bonus is NEVER
+ *    multiplied — a bigger finish hurts the opponents, it doesn't pay more.
  *  - a player who never opened: a fixed penalty of 202,
  *  - a player who opened but still holds tiles: the sum of their held values.
- * A "special" finish (closing by discarding the okey, or finishing a pairs
- * hand) doubles every player's result for that round.
+ * Everyone except the finisher is then multiplied by `opponentMultiplier`,
+ * which the special finishes stack up (see `opponentMultiplierOf`).
  *
- * Eşli/paired note: a non-opener simply scores 202 (NOT doubled). When BOTH
- * partners fail to open, their TEAM total is naturally 404 (202 + 202) — there
- * is no per-player doubling for this case. (Set scoring combines team totals.)
+ * Eşli/paired note: a non-opener simply scores 202 before multipliers. When
+ * BOTH partners fail to open, their TEAM total is naturally 404 (202 + 202).
+ * (Set scoring combines team totals.)
  */
 
 export const NOT_OPENED_PENALTY = 202;
+/** Flat bonus for an ordinary finish (opened on an earlier turn, then went out). */
 export const FINISH_BONUS = -101;
+/** Flat bonus for elden bitme / kafa atma / çift bitme. */
+export const HAND_FINISH_BONUS = -200;
 
 /* Floor-penalty (ceza) amounts. The take-to-open penalty is tile-value based
  * (×10 series / ×20 pairs) and lives in the service; these are the flat ones. */
@@ -54,6 +59,89 @@ export function handValueOf(tiles: Tile[], okey: OkeyMatch | null): number {
   return tiles.reduce((sum, tile) => sum + tileValue(tile.face, okey), 0);
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Finish kinds                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What kind of finish ended the round. Not mutually exclusive — `okey` in
+ * particular rides on top of any of the others.
+ */
+export interface FinishFlags {
+  /**
+   * Elden bitme: the finisher made their FIRST opening on the very turn they
+   * went out, and processed (işledi) no tile onto a meld along the way.
+   */
+  hand: boolean;
+  /** Kafa atma: elden bitme while no other player had opened. Implies `hand`. */
+  headShot: boolean;
+  /** Çift bitme: the finisher's opening was a pairs opening. */
+  pairs: boolean;
+  /** The winning discard was the okey tile. */
+  okey: boolean;
+}
+
+/** An ordinary finish (or a deck-exhausted round, where nothing applies). */
+export const NO_FINISH: FinishFlags = {
+  hand: false,
+  headShot: false,
+  pairs: false,
+  okey: false,
+};
+
+/**
+ * Derives the finish kind from public game state. `openedThisTurn` is the
+ * elden-bitme marker written by `openMelds` / `layPairs` and cleared by any
+ * process or discard, so `openedThisTurn === uid` at the winning discard means
+ * exactly "opened this turn, processed nothing".
+ */
+export function finishFlagsOf(input: {
+  uid: string;
+  playerOrder: string[];
+  opened: Record<string, boolean>;
+  openedWith: Record<string, 'meld' | 'pair'>;
+  openedThisTurn?: string;
+  /** Whether the winning discard was the okey (caller resolves the tile). */
+  okeyDiscard: boolean;
+}): FinishFlags {
+  const hand = input.openedThisTurn === input.uid;
+  const headShot =
+    hand &&
+    input.playerOrder.every(
+      (player) => player === input.uid || input.opened[player] !== true,
+    );
+  return {
+    hand,
+    headShot,
+    pairs: input.openedWith[input.uid] === 'pair',
+    okey: input.okeyDiscard,
+  };
+}
+
+/** The finisher's flat score. Never multiplied. */
+export function finishBonusOf(flags: FinishFlags): number {
+  return flags.hand || flags.pairs ? HAND_FINISH_BONUS : FINISH_BONUS;
+}
+
+/**
+ * The multiplier applied to everyone EXCEPT the finisher. Each qualifying
+ * condition doubles again — there is no cap. Note `hand` alone does not
+ * multiply (plain elden bitme just pays -200); only kafa atma does.
+ *
+ * Reachable values are 1, 2 and 4: `hand` and `pairs` cannot co-occur, because
+ * a pairs opener sheds tiles two at a time and must process at least once to
+ * reach an empty hand — which clears the elden marker.
+ */
+export function opponentMultiplierOf(flags: FinishFlags): number {
+  return (
+    2 ** (Number(flags.headShot) + Number(flags.pairs) + Number(flags.okey))
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Round scoring                                                              */
+/* -------------------------------------------------------------------------- */
+
 export interface RoundScoreContext {
   playerOrder: string[];
   opened: Record<string, boolean>;
@@ -63,26 +151,32 @@ export interface RoundScoreContext {
   handValue: Record<string, number>;
   /** The finisher uid, or undefined for a deck-exhausted (no-winner) end. */
   winner?: string;
-  /** A special finish (okey-discard or pairs finish) doubles EVERY player. */
-  globalDouble: boolean;
+  /** The finisher's flat score — see `finishBonusOf`. Unused without a winner. */
+  finishBonus: number;
+  /** Multiplier on every non-finisher — see `opponentMultiplierOf`. 1 = none. */
+  opponentMultiplier: number;
 }
 
 /**
  * Computes each player's penalty points for one finished round.
  *
- * Doubling is per-player and never stacks beyond ×2: a player's score doubles if
- * the round was a special finish (globalDouble) OR they themselves opened with
- * pairs (a doubled commitment, win or lose).
+ * The finisher takes `finishBonus` flat. Everyone else is multiplied twice
+ * over: by 2 if they themselves opened with pairs (a doubled commitment, win or
+ * lose), and by the round's `opponentMultiplier`. These stack, so a non-opener
+ * in a kafa atma + okey round can reach 202 × 4 = 808.
  */
 export function scoreRound(ctx: RoundScoreContext): Record<string, number> {
   const result: Record<string, number> = {};
   for (const uid of ctx.playerOrder) {
-    let base: number;
-    if (uid === ctx.winner) base = FINISH_BONUS;
-    else if (!ctx.opened[uid]) base = NOT_OPENED_PENALTY;
-    else base = ctx.handValue[uid] ?? 0;
-    const doubled = ctx.globalDouble || ctx.openedWith[uid] === 'pair';
-    result[uid] = doubled ? base * 2 : base;
+    if (uid === ctx.winner) {
+      result[uid] = ctx.finishBonus;
+      continue;
+    }
+    const base = !ctx.opened[uid]
+      ? NOT_OPENED_PENALTY
+      : (ctx.handValue[uid] ?? 0);
+    const ownDouble = ctx.openedWith[uid] === 'pair' ? 2 : 1;
+    result[uid] = base * ownDouble * ctx.opponentMultiplier;
   }
   return result;
 }

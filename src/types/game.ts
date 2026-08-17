@@ -2,6 +2,7 @@ import type { Timestamp } from 'firebase/firestore';
 import type { Tile, TileFace } from '@/game/tiles';
 import type { OkeyMatch } from '@/game/okey';
 import type { MeldKind } from '@/game/melds';
+import type { FinishFlags } from '@/game/scoring';
 
 /** A meld laid on the table (open area). */
 export interface TableMeld {
@@ -73,8 +74,21 @@ export interface RoundResult {
   winner?: string;
   /** Why the round ended. */
   reason: 'finish' | 'deck';
-  /** Whether a special finish doubled the round. */
+  /**
+   * Whether the round carried a multiplier. Kept as the fallback for rounds
+   * scored before `finish` existed, where it was the only signal available.
+   */
   doubled: boolean;
+  /**
+   * What kind of finish it was, plus the numbers it produced. Written only when
+   * someone actually finished — a deck-exhausted round omits it entirely.
+   */
+  finish?: FinishFlags & {
+    /** The multiplier applied to every non-finisher (1 | 2 | 4). */
+    multiplier: number;
+    /** The finisher's flat score (-101 or -200). */
+    bonus: number;
+  };
   /** Whether this round completed the current set. */
   setComplete?: boolean;
   /**
