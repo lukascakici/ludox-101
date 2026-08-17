@@ -80,6 +80,25 @@ describe('finish kinds', () => {
     expect(opponentMultiplierOf(f)).toBe(2);
   });
 
+  it('still counts as kafa atma when only the partner has opened', () => {
+    const f = flags({
+      openedThisTurn: 'a',
+      teams: { a: 0, b: 1, c: 0, d: 1 },
+      opened: { a: true, c: true }, // c is a's partner
+    });
+    expect(f.headShot).toBe(true);
+  });
+
+  it('is not kafa atma once an opponent has opened', () => {
+    const f = flags({
+      openedThisTurn: 'a',
+      teams: { a: 0, b: 1, c: 0, d: 1 },
+      opened: { a: true, b: true },
+    });
+    expect(f.hand).toBe(true);
+    expect(f.headShot).toBe(false);
+  });
+
   it('ignores a marker left by another player', () => {
     const f = flags({ openedThisTurn: 'b' });
     expect(f.hand).toBe(false);

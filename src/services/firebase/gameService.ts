@@ -1096,6 +1096,7 @@ export async function discardTile(
             ...(game.openedThisTurn
               ? { openedThisTurn: game.openedThisTurn }
               : {}),
+            ...(game.teams ? { teams: game.teams } : {}),
             okeyDiscard: discardedOkey,
           })
         : NO_FINISH;

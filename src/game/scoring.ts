@@ -13,9 +13,11 @@ import type { Tile, TileFace } from './tiles';
  * Everyone except the finisher is then multiplied by `opponentMultiplier`,
  * which the special finishes stack up (see `opponentMultiplierOf`).
  *
- * Eşli/paired note: a non-opener simply scores 202 before multipliers. When
- * BOTH partners fail to open, their TEAM total is naturally 404 (202 + 202).
- * (Set scoring combines team totals.)
+ * Eşli/paired note: the finisher's PARTNER scores 0 — their held tiles and
+ * openings stop counting the moment their team closes the hand. On the losing
+ * side a non-opener simply scores 202 before multipliers, so when BOTH of them
+ * fail to open their TEAM total is naturally 404 (202 + 202). (Set scoring
+ * combines team totals.)
  */
 
 export const NOT_OPENED_PENALTY = 202;
@@ -73,7 +75,7 @@ export interface FinishFlags {
    * went out, and processed (işledi) no tile onto a meld along the way.
    */
   hand: boolean;
-  /** Kafa atma: elden bitme while no other player had opened. Implies `hand`. */
+  /** Kafa atma: elden bitme while no OPPONENT had opened. Implies `hand`. */
   headShot: boolean;
   /** Çift bitme: the finisher's opening was a pairs opening. */
   pairs: boolean;
@@ -101,14 +103,22 @@ export function finishFlagsOf(input: {
   opened: Record<string, boolean>;
   openedWith: Record<string, 'meld' | 'pair'>;
   openedThisTurn?: string;
+  /** Team per player in eşli mode; absent in solo. A partner is not an opponent. */
+  teams?: Record<string, 0 | 1>;
   /** Whether the winning discard was the okey (caller resolves the tile). */
   okeyDiscard: boolean;
 }): FinishFlags {
   const hand = input.openedThisTurn === input.uid;
+  // Kafa atma only cares about the OPPOSING side: in eşli mode a partner who
+  // has opened doesn't spoil it. Solo has no teams, so everyone is an opponent.
+  const myTeam = input.teams?.[input.uid];
   const headShot =
     hand &&
     input.playerOrder.every(
-      (player) => player === input.uid || input.opened[player] !== true,
+      (player) =>
+        player === input.uid ||
+        (input.teams != null && input.teams[player] === myTeam) ||
+        input.opened[player] !== true,
     );
   return {
     hand,
@@ -151,6 +161,8 @@ export interface RoundScoreContext {
   handValue: Record<string, number>;
   /** The finisher uid, or undefined for a deck-exhausted (no-winner) end. */
   winner?: string;
+  /** Team per player in eşli mode; absent in solo. Drives the partner rule. */
+  teams?: Record<string, 0 | 1>;
   /** The finisher's flat score — see `finishBonusOf`. Unused without a winner. */
   finishBonus: number;
   /** Multiplier on every non-finisher — see `opponentMultiplierOf`. 1 = none. */
@@ -158,18 +170,30 @@ export interface RoundScoreContext {
 }
 
 /**
- * Computes each player's penalty points for one finished round.
+ * Computes each player's hand points for one finished round.
  *
- * The finisher takes `finishBonus` flat. Everyone else is multiplied twice
- * over: by 2 if they themselves opened with pairs (a doubled commitment, win or
- * lose), and by the round's `opponentMultiplier`. These stack, so a non-opener
- * in a kafa atma + okey round can reach 202 × 4 = 808.
+ * The finisher takes `finishBonus` flat. In eşli mode their PARTNER scores a
+ * straight 0 — once your team has closed the hand, neither what you held nor
+ * whether you opened matters. Everyone else is multiplied twice over: by 2 if
+ * they themselves opened with pairs (a doubled commitment, win or lose), and by
+ * the round's `opponentMultiplier`. These stack, so a non-opener in a kafa atma
+ * + okey round can reach 202 × 4 = 808.
+ *
+ * Floor penalties are NOT part of this — they are added to the round delta
+ * afterwards, and the winner's partner still owes any they incurred.
  */
 export function scoreRound(ctx: RoundScoreContext): Record<string, number> {
+  // 0 is a valid team key, so every check here is against null, not falsiness.
+  const winnerTeam =
+    ctx.winner != null ? ctx.teams?.[ctx.winner] : undefined;
   const result: Record<string, number> = {};
   for (const uid of ctx.playerOrder) {
     if (uid === ctx.winner) {
       result[uid] = ctx.finishBonus;
+      continue;
+    }
+    if (winnerTeam != null && ctx.teams?.[uid] === winnerTeam) {
+      result[uid] = 0;
       continue;
     }
     const base = !ctx.opened[uid]
